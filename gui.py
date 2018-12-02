@@ -1,5 +1,4 @@
 from backend import *
-import threading
 from queue import Queue
 
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QCheckBox
@@ -13,21 +12,15 @@ from matplotlib.figure import Figure
 class GUI(QWidget):
     def __init__(self):
         super().__init__()
-        # self.window = window
-        # self.window.protocol('WM_DELETE_WINDOW', self.shutdown)
-
         self.title = "Autonomous Room Correction ({0}Hz)".format(RATE)
         self.setWindowTitle(self.title)
-        self.setGeometry(100, 50, 1200, 1000)
-        # self.program_shutdown = threading.Event()  # Flag to ensure program exits nicely
+        self.setGeometry(200, 50, 1200, 1000)
 
-        # self.window.geometry("+400+100")
-        # self.window.title(self.title)
-
-        self.init_gui()
         self.init_queues()
         self.init_filter_chain()
         self.init_streams()
+        self.init_gui()
+        self.init_plots()
         self.show()
 
     def init_gui(self):
@@ -47,15 +40,62 @@ class GUI(QWidget):
         self.bypass_cb = QCheckBox("Bypass")
         self.bypass_cb.clicked.connect(self.toggle_bypass)
 
-        layout = QVBoxLayout()
-        layout.addWidget(self.toolbar)
-        layout.addWidget(self.canvas)
-        layout.addWidget(self.bg_btn)
-        layout.addWidget(self.latency_btn)
-        layout.addWidget(self.alg_btn)
-        layout.addWidget(self.bypass_cb)
+        button_layout = QHBoxLayout()
+        # button_layout.addStretch()
+        button_layout.addWidget(self.bg_btn)
+        button_layout.addWidget(self.latency_btn)
+        button_layout.addWidget(self.alg_btn)
+        button_layout.addWidget(self.bypass_cb)
 
-        self.setLayout(layout)
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.toolbar)
+        main_layout.addWidget(self.canvas)
+        main_layout.addLayout(button_layout)
+
+        self.setLayout(main_layout)
+
+    def init_plots(self):
+        # Background Measurement
+        self.bg_model_ax.set_title("Background Measurement", fontsize=FONTSIZE_TITLES)
+        self.bg_model_ax.set_ylabel("Magnitude [dBFS]", fontsize=FONTSIZE_LABELS)
+        self.bg_model_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
+        self.bg_model_ax.minorticks_on()
+        self.bg_model_ax.tick_params(labelsize=FONTSIZE_TICKS)
+        self.bg_model_ax.grid(which="major", linestyle="-", alpha=0.4)
+        self.bg_model_ax.grid(which="minor", linestyle="--", alpha=0.2)
+        self.bg_model_ax.set_xscale("log")
+
+        # Latency Measurement
+        self.latency_ax.set_title("Latency Measurement", fontsize=FONTSIZE_TITLES)
+        self.latency_ax.set_ylabel("Amplitude [a.u.]", fontsize=FONTSIZE_LABELS)
+        self.latency_ax.set_xlabel("Time [s]", fontsize=FONTSIZE_LABELS)
+        self.latency_ax.minorticks_on()
+        self.latency_ax.tick_params(labelsize=FONTSIZE_TICKS)
+        self.latency_ax.grid(which="major", linestyle="-", alpha=0.4)
+        self.latency_ax.grid(which="minor", linestyle="--", alpha=0.2)
+
+        # Current Filter Chain
+        self.filter_ax.set_title("Current Filter Chain", fontsize=FONTSIZE_TITLES)
+        self.filter_ax.set_ylabel("Transfer Function " + r"$H(z)$" + " [dBFS]", fontsize=FONTSIZE_LABELS)
+        self.filter_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
+        self.filter_ax.minorticks_on()
+        self.filter_ax.tick_params(labelsize=FONTSIZE_TICKS)
+        self.filter_ax.grid(which="major", linestyle="-", alpha=0.4)
+        self.filter_ax.grid(which="minor", linestyle="--", alpha=0.2)
+        self.filter_ax.set_xscale("log")
+        self.update_filter_ax()
+
+        # Current RTF
+        self.rtf_ax.set_title("Current RTF", fontsize=FONTSIZE_TITLES)
+        self.rtf_ax.set_ylabel("Magnitude [dBFS]", fontsize=FONTSIZE_LABELS)
+        self.rtf_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
+        self.rtf_ax.minorticks_on()
+        self.rtf_ax.tick_params(labelsize=FONTSIZE_TICKS)
+        self.rtf_ax.grid(which="major", linestyle="-", alpha=0.4)
+        self.rtf_ax.grid(which="minor", linestyle="--", alpha=0.2)
+        self.rtf_ax.set_xscale("log")
+
+        self.canvas.draw()
 
     def init_queues(self):
         self.ref_in_buffer_queue = Queue(maxsize=1)
@@ -71,30 +111,32 @@ class GUI(QWidget):
         self.bypass_queue = Queue(maxsize=1)
 
     def init_filter_chain(self):
-        f1 = PeakFilter(fc=50, gain=-10, q=1)
+        f1 = PeakFilter(fc=50, gain=-10, q=0.5)
         f2 = PeakFilter(fc=120, gain=-5, q=1)
         f3 = PeakFilter(fc=300, gain=5, q=1)
-        f4 = PeakFilter(fc=625, gain=5, q=1)
-        f5 = PeakFilter(fc=1250, gain=0, q=1)
-        f6 = PeakFilter(fc=2500, gain=-20, q=1)
-        f7 = PeakFilter(fc=5000, gain=0, q=1)
+        f4 = PeakFilter(fc=625, gain=5, q=2)
+        f5 = PeakFilter(fc=1250, gain=2, q=1)
+        f6 = PeakFilter(fc=2500, gain=-20, q=0.8)
+        f7 = PeakFilter(fc=5000, gain=-5, q=1)
         f8 = PeakFilter(fc=10000, gain=5, q=1)
-        f9 = PeakFilter(fc=20000, gain=0, q=1)
-        self.chain_queue.put(FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9))
+        f9 = PeakFilter(fc=20000, gain=-1, q=3)
+        self.chain = FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9)
+        self.chain_queue.put(self.chain)
 
     def init_streams(self):
         self.main_stream = MainStream(self.ref_in_buffer_queue, self.meas_out_buffer_queue,
                                       self.chain_queue, self.bypass_queue)
         self.main_stream.start()
-        time.sleep(1)  # Required to avoid SIGSEGV error
+        time.sleep(0.5)  # Required to avoid SIGSEGV error
         self.meas_stream = MeasStream(self.meas_in_buffer_queue)
         self.meas_stream.start()
-    
+
     def toggle_buttons_state(self):
         new_state = not self.bg_btn.isEnabled()
         self.bg_btn.setEnabled(new_state)
         self.latency_btn.setEnabled(new_state)
         self.alg_btn.setEnabled(new_state)
+        self.bypass_cb.setEnabled(new_state)
 
     def toggle_bypass(self):
         if self.bypass_cb.isChecked():
@@ -103,6 +145,41 @@ class GUI(QWidget):
         else:
             print("\nFilters active!")
             self.bypass_queue.put(False)
+
+    def update_bg_model_ax(self):
+        # Remove all existing lines
+        self.bg_model_ax.lines = list()
+        # Plot model
+        self.bg_model_ax.semilogx(*self.bg_model, linestyle="-", linewidth=2, color="black")
+        # Plot snippets
+        for x, y in self.bg_snippets:
+            self.bg_model_ax.semilogx(x, y, color="gray", zorder=-1, linewidth=1)
+        self.bg_model_ax.legend(["Log Binned Model", "N={0} Snippets".format(len(self.bg_snippets))],
+                                fontsize=FONTSIZE_LEGENDS)
+        self.canvas.draw()
+
+    def update_latency_ax(self):
+        # Remove all existing lines
+        self.latency_ax.lines = list()
+        # Plot latencies
+        self.latency_ax.plot(*self.latency_ref, color="C0", label="Reference In")
+        self.latency_ax.plot(*self.latency_meas, color="C1", label="Measurement In")
+        self.latency_ax.legend(fontsize=FONTSIZE_LEGENDS)
+        self.canvas.draw()
+
+    def update_filter_ax(self):
+        # Remove all existing lines
+        self.filter_ax.lines = list()
+        # Plot chain
+        f, H = self.chain.get_chain_tf()
+        self.filter_ax.semilogx(f, convert_to_dbfs(H), label="Chain", linewidth=2)
+        # Plot individual filters
+        for d in self.chain.get_all_filters_settings_tf():
+            f, h = d["tf"]
+            label = d["settings"]
+            self.filter_ax.semilogx(f, convert_to_dbfs(h), label=label, linestyle="--", zorder=-1, linewidth=1)
+        # self.filter_ax.legend(fontsize=FONTSIZE_LEGENDS)
+        self.canvas.draw()
     
     def start_bg_model_measurement(self):
         # Deactivate buttons
@@ -123,25 +200,6 @@ class GUI(QWidget):
         self.update_bg_model_ax()
         # Reactivate buttons
         self.toggle_buttons_state()
-
-    def update_bg_model_ax(self):
-        # Discard the old graph
-        self.bg_model_ax.clear()
-
-        # Plot model
-        self.bg_model_ax.semilogx(*self.bg_model, linestyle="-", linewidth=2, color="black")
-        for x, y in self.bg_snippets:
-            self.bg_model_ax.semilogx(x, y, color="gray", zorder=-1)
-
-        self.bg_model_ax.set_title("Background Measurement")
-        self.bg_model_ax.set_ylabel("Amplitude [dBFS]")
-        self.bg_model_ax.set_xlabel("Frequency [Hz]")
-        self.bg_model_ax.legend(["Log Binned Model", "N={0} Snippets".format(len(self.bg_snippets))])
-        self.bg_model_ax.minorticks_on()
-        self.bg_model_ax.grid(which="major", linestyle="-", alpha=0.4)
-        self.bg_model_ax.grid(which="minor", linestyle="--", alpha=0.2)
-
-        self.canvas.draw()
     
     def start_latency_measurement(self):
         # Deactivate buttons
@@ -158,24 +216,6 @@ class GUI(QWidget):
 
         # Reactivate buttons
         self.toggle_buttons_state()
-
-    def update_latency_ax(self):
-        # Discard the old graph
-        self.latency_ax.clear()
-
-        # Plot latencies
-        self.latency_ax.plot(*self.latency_ref, linestyle="-", linewidth=1, color="C0", label="Reference In")
-        self.latency_ax.plot(*self.latency_meas, linestyle="-", linewidth=1, color="C1", label="Measurement In")
-
-        self.latency_ax.set_title("Latency Measurement")
-        self.latency_ax.set_ylabel("Amplitude [a.u.]")
-        self.latency_ax.set_xlabel("Time [s]")
-        self.latency_ax.legend()
-        self.latency_ax.minorticks_on()
-        self.latency_ax.grid(which="major", linestyle="-", alpha=0.4)
-        self.latency_ax.grid(which="minor", linestyle="--", alpha=0.2)
-
-        self.canvas.draw()
 
     # TODO
 

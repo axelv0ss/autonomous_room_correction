@@ -25,6 +25,12 @@ OCT_FRAC = 1 / 24
 
 EXPORT_WAV = True  # Export wav
 
+# For plots in interface
+FONTSIZE_TITLES = 12
+FONTSIZE_LABELS = 10
+FONTSIZE_LEGENDS = 9
+FONTSIZE_TICKS = 9
+
 assert SNIPPET_LENGTH % BUFFER == 0, "SNIPPET_LENGTH must be an integer multiple of BUFFER"
 assert BACKGROUND_LENGTH % BUFFER == 0, "BACKGROUND_LENGTH must be an integer multiple of BUFFER"
 assert LATENCY_MEASUREMENT_LENGTH % BUFFER == 0, "LATENCY_MEASUREMENT_LENGTH must be an integer multiple of BUFFER"

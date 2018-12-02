@@ -64,7 +64,8 @@ class PeakFilter(object):
 
     def get_tf(self):
         """
-        Get the Transfer Function of the filter
+        Get the (complex) Transfer Function of the filter.
+        Needs to be converted to dB using 20*log(abs(H))
         """
         w_f, h = signal.freqz(*self.get_b_a())
         f = w_f * RATE / (2 * np.pi)
@@ -99,10 +100,14 @@ class FilterChain(object):
         self.filters[i].set_params(fc, gain, q)
 
     def get_chain_tf(self):
-        f, H = self.filters[0].get_tf()
-        if len(self.filters) > 1:
-            for filter in self.filters[1:]:
-                H *= filter.get_tf()[1]
+        """
+        Get the (complex) Transfer Function of the chain.
+        Needs to be converted to dB using 20*log(abs(H))
+        """
+        H = 1
+        for filt in self.filters:
+            f, h = filt.get_tf()
+            H *= h
         return f, H
 
     def get_chain_settings(self):
@@ -397,7 +402,7 @@ class BackgroundModel(QtCore.QThread):
             self.snippets_fd.append((x_fd, y_fd))
 
         # Convert to dB
-        self.snippets_fd = [(x_fd, 20 * np.log10(y_fd)) for x_fd, y_fd in self.snippets_fd]
+        self.snippets_fd = [(x_fd, convert_to_dbfs(y_fd)) for x_fd, y_fd in self.snippets_fd]
 
     def mask_snippets_fd(self):
         """
@@ -651,17 +656,16 @@ class AlgorithmIteration(QtCore.QThread):
 
             # Multiply by 2 to compensate for the loss of negative frequencies (half the spectrum)
             # Divide by number of samples to compensate for the duration of the signal
-            # Take absolute value for magnitude
             # These operations together ensure that magnitude is preserved and normalised
-            y_fd = 2 * np.abs(y_fd / N)
+            y_fd = 2 * y_fd / N
 
             return x_fd, y_fd
 
         self.ref_in_snippet_fd = transform(*self.ref_in_snippet_td)
         self.meas_in_snippet_fd = transform(*self.meas_in_snippet_td)
 
-        # Convert to dB
-        self.snippets_fd = [(x_fd, 20 * np.log10(y_fd)) for x_fd, y_fd in self.snippets_fd]
+        # Convert to dB and take magnitude
+        self.snippets_fd = [(x_fd, convert_to_dbfs(y_fd)) for x_fd, y_fd in self.snippets_fd]
 
     def mask_snippets_fd(self):
         """
@@ -699,6 +703,13 @@ def _record(bfr_queue, rec_queue, rec_length, start_flag):
 
     rec_queue.put(rec)
 
+
+def convert_to_dbfs(y):
+    """
+    Converts the input array y into dBFS units using
+    [dB] = 20 * log10(mag/ref), where ref = 1
+    """
+    return 20 * np.log10(np.abs(y))
 
 # def main_stream(REF_IN_BFR, MEAS_OUT_BFR, CHAIN_SETTINGS, MAIN_STREAM_ENABLED):
 #     """
