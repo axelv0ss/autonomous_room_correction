@@ -135,15 +135,16 @@ class FilterChain(object):
 
 
 class MainStream(QtCore.QThread):
-    def __init__(self, ref_in_buffer_queue, meas_out_buffer_queue, chain, bypass_chain):
+    def __init__(self, ref_in_buffer, meas_out_buffer, chain, bypass_chain, paused, shutting_down, main_sync_event):
         super().__init__()
-        self.paused = False
-        self.shutting_down = False
-        self.ref_in_buffer_queue = ref_in_buffer_queue
-        self.meas_out_buffer_queue = meas_out_buffer_queue
+        self.ref_in_buffer = ref_in_buffer
+        self.meas_out_buffer = meas_out_buffer
 
         self.chain = chain
         self.bypass_chain = bypass_chain
+        self.paused = paused
+        self.shutting_down = shutting_down
+        self.main_sync_event = main_sync_event
 
     def run(self):
         p = pyaudio.PyAudio()
@@ -163,16 +164,16 @@ class MainStream(QtCore.QThread):
         for i in range(p.get_device_count()):
             print(i, p.get_device_info_by_index(i)['name'])
 
-        while not self.shutting_down:
-            if stream.is_active() and not self.paused:
+        while not self.shutting_down.get_state():
+            if stream.is_active() and not self.paused.get_state():
                 pass
-            elif stream.is_active() and self.paused:
+            elif stream.is_active() and self.paused.get_state():
                 print("\nMain stream paused!")
                 stream.stop_stream()
-            elif not stream.is_active() and not self.paused:
+            elif not stream.is_active() and not self.paused.get_state():
                 print("\nMain stream started!")
                 stream.start_stream()
-            elif not stream.is_active() and self.paused:
+            elif not stream.is_active() and self.paused.get_state():
                 pass
             time.sleep(0.1)
 
@@ -188,12 +189,8 @@ class MainStream(QtCore.QThread):
         in_data = np.reshape(in_data, (BUFFER, 2))        # Reshape array to two channels.
         in_data = np.average(in_data, axis=1)             # Convert audio data to mono by averaging channels.
 
-        # Write ref_in data to shared queue.
-        try:
-            self.ref_in_buffer_queue.put_nowait(in_data)
-        except queue.Full:
-            self.ref_in_buffer_queue.get_nowait()
-            self.ref_in_buffer_queue.put_nowait(in_data)
+        # Write ref_in data to ref_in_buffer.
+        self.ref_in_buffer[:] = in_data[:]
 
         # If the EQ settings have changed, apply them. Otherwise ignore.
         # try:
@@ -216,29 +213,29 @@ class MainStream(QtCore.QThread):
 
         # Write meas_out data to shared queue.
         # TODO Is it even necessary to write this data to a shared queue??
-        try:
-            self.meas_out_buffer_queue.put_nowait(out_data)
-        except queue.Full:
-            self.meas_out_buffer_queue.get_nowait()
-            self.meas_out_buffer_queue.put_nowait(out_data)
+        self.meas_out_buffer[:] = out_data[:]
 
         out_data = np.repeat(out_data, 2)                   # Convert to 2-channel audio for compatib. with stream
         out_bytes = out_data.astype(NP_FORMAT).tostring()     # Convert audio data back to bytes and return
+
+        self.main_sync_event.set()  # Sets the flag for synchronised recording: buffer ready for collection
+
         return out_bytes, pyaudio.paContinue
 
-    def toggle_pause(self):
-        self.paused = not self.paused
-
-    def shutdown(self):
-        self.shutting_down = True
+    # def toggle_pause(self):
+    #     self.paused = not self.paused
+    #
+    # def shutdown(self):
+    #     self.shutting_down = True
 
 
 class MeasStream(QtCore.QThread):
-    def __init__(self, meas_in_buffer_queue):
+    def __init__(self, meas_in_buffer, shutting_down, meas_sync_event):
         super().__init__()
         # self.program_shutdown = program_shutdown
-        self.shutting_down = False
-        self.meas_in_buffer_queue = meas_in_buffer_queue
+        self.meas_in_buffer = meas_in_buffer
+        self.shutting_down = shutting_down
+        self.meas_sync_event = meas_sync_event
 
     def run(self):
         p = pyaudio.PyAudio()
@@ -253,7 +250,7 @@ class MeasStream(QtCore.QThread):
 
         print("\nMeas stream started!")
 
-        while not self.shutting_down:
+        while not self.shutting_down.get_state():
             # print(self.program_shutdown.is_set())
             time.sleep(0.1)
 
@@ -268,23 +265,22 @@ class MeasStream(QtCore.QThread):
         audio_data = np.fromstring(in_bytes, dtype=NP_FORMAT)  # Convert audio data in bytes to an array.
 
         # Write meas_in data to shared queue.
-        try:
-            self.meas_in_buffer_queue.put_nowait(audio_data)
-        except queue.Full:
-            self.meas_in_buffer_queue.get_nowait()
-            self.meas_in_buffer_queue.put_nowait(audio_data)
+        self.meas_in_buffer[:] = audio_data
 
+        self.meas_sync_event.set()  # Sets the flag for synchronised recording: buffer ready for collection
         return in_bytes, pyaudio.paContinue
 
-    def shutdown(self):
-        self.shutting_down = True
+    # def shutdown(self):
+    #     self.shutting_down = True
 
 
 class BackgroundModel(QtCore.QThread):
-    def __init__(self, sendback_queue, meas_in_buffer_queue):
+    def __init__(self, sendback_queue, meas_in_buffer, meas_sync_event):
         super().__init__()
         self.sendback_queue = sendback_queue
-        self.meas_in_buffer_queue = meas_in_buffer_queue
+        self.meas_in_buffer = meas_in_buffer
+        self.meas_sync_event = meas_sync_event
+
         self.background_rec = None
         self.snippets_td = list()
         self.snippets_fd = list()
@@ -327,11 +323,10 @@ class BackgroundModel(QtCore.QThread):
         print("Recording {0}s from ref_in_buffer_queue ({1} export={2})..."
               .format(round(BACKGROUND_LENGTH / RATE, 2), file_name, EXPORT_WAV))
 
-        background_rec_queue = queue.Queue(maxsize=1)
-        start_flag = threading.Event()
-        start_flag.set()
-        _record(self.meas_in_buffer_queue, background_rec_queue, BACKGROUND_LENGTH, start_flag=start_flag)
-        self.background_rec = background_rec_queue.get()
+        self.background_rec = np.zeros(BACKGROUND_LENGTH, dtype=NP_FORMAT)
+        start_event = threading.Event()
+        start_event.set()
+        _record(self.meas_in_buffer, self.background_rec, self.meas_sync_event, start_event)
 
         if EXPORT_WAV:
             from scipy.io.wavfile import write
@@ -484,49 +479,49 @@ class LatencyCalibration(QtCore.QThread):
     """
     Used to determine the MEAS_REF_LATENCY value to synchronise the ref_in and meas_in streams.
     """
-    def __init__(self, sendback_queue, ref_in_buffer_queue, meas_in_buffer_queue):
+    def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event):
         super().__init__()
         self.sendback_queue = sendback_queue
-        self.ref_in_buffer_queue = ref_in_buffer_queue
-        self.meas_in_buffer_queue = meas_in_buffer_queue
+        self.ref_in_buffer = ref_in_buffer
+        self.meas_in_buffer = meas_in_buffer
+        self.main_sync_event = main_sync_event
+        self.meas_sync_event = meas_sync_event
 
     def run(self):
         """
         Records the two streams without any latency compensation and send the result back to the GUI for plotting.
         """
-        print("\nRunning calibration recordings:")
-        print("Calibration: Recording {0}s from ref_in_buffer_queue..."
+        print("\nTaking latency measurements:")
+        print("Latency measurement: Recording {0}s from ref_in_buffer..."
               .format(round(LATENCY_MEASUREMENT_LENGTH / RATE, 2)))
-        print("Calibration: Recording {0}s from meas_in_buffer_queue..."
+        print("Latency measurement: Recording {0}s from meas_in_buffer..."
               .format(round(LATENCY_MEASUREMENT_LENGTH / RATE, 2)))
 
-        # Use queues and threading here to ensure we capture identical parts of the song
-        ref_in_rec_queue = queue.Queue(maxsize=1)
-        meas_in_rec_queue = queue.Queue(maxsize=1)
+        # Arrays in which to record
+        ref_in_rec = np.zeros(LATENCY_MEASUREMENT_LENGTH, dtype=NP_FORMAT)
+        meas_in_rec = np.zeros(LATENCY_MEASUREMENT_LENGTH, dtype=NP_FORMAT)
 
-        # To ensure synchronised recording
-        ref_in_start_flag = threading.Event()
-        meas_in_start_flag = threading.Event()
+        # Use threading here to ensure we capture identical parts of the song
+        # Use events to control exactly when each recording starts
+        ref_in_start_event = threading.Event()
+        meas_in_start_event = threading.Event()
 
-        p_ref = threading.Thread(target=_record, args=(self.ref_in_buffer_queue, ref_in_rec_queue,
-                                                       LATENCY_MEASUREMENT_LENGTH, ref_in_start_flag))
-        p_meas = threading.Thread(target=_record, args=(self.meas_in_buffer_queue, meas_in_rec_queue,
-                                                        LATENCY_MEASUREMENT_LENGTH, meas_in_start_flag))
+        ref_thread = threading.Thread(target=_record, args=(self.ref_in_buffer, ref_in_rec, self.main_sync_event,
+                                                            ref_in_start_event))
+        meas_thread = threading.Thread(target=_record, args=(self.meas_in_buffer, meas_in_rec, self.meas_sync_event,
+                                                             meas_in_start_event))
 
-        p_ref.start()
-        p_meas.start()
+        ref_thread.start()
+        meas_thread.start()
 
         # To ensure synchronised recording
         time.sleep(0.2)
-        ref_in_start_flag.set()
+        ref_in_start_event.set()
         time.sleep(MEAS_REF_LATENCY)
-        meas_in_start_flag.set()
+        meas_in_start_event.set()
 
-        p_ref.join()
-        p_meas.join()
-
-        ref_in_rec = ref_in_rec_queue.get()
-        meas_in_rec = meas_in_rec_queue.get()
+        ref_thread.join()
+        meas_thread.join()
 
         # Return
         print("Calibration recordings finished!")
@@ -538,11 +533,14 @@ class LatencyCalibration(QtCore.QThread):
 
 
 class AlgorithmIteration(QtCore.QThread):
-    def __init__(self, sendback_queue, ref_in_buffer_queue, meas_in_buffer_queue):
+    def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event):
         super().__init__()
         self.sendback_queue = sendback_queue
-        self.ref_in_buffer_queue = ref_in_buffer_queue
-        self.meas_in_buffer_queue = meas_in_buffer_queue
+        self.ref_in_buffer = ref_in_buffer
+        self.meas_in_buffer = meas_in_buffer
+        self.main_sync_event = main_sync_event
+        self.meas_sync_event = meas_sync_event
+
         self.ref_in_snippet_td = None
         self.meas_in_snippet_td = None
         self.ref_in_snippet_fd = None
@@ -569,47 +567,45 @@ class AlgorithmIteration(QtCore.QThread):
         """
         file_names = ["REF_IN_REC.wav", "MEAS_IN_REC.wav"]
 
-        print("Recording {0}s from ref_in_buffer_queue ({1} export={2})..."
+        print("Recording {0}s from ref_in_buffer ({1} export={2})..."
               .format(round(SNIPPET_LENGTH / RATE, 2), file_names[0], EXPORT_WAV))
-        print("Recording {0}s from meas_in_buffer_queue ({1} export={2})..."
+        print("Recording {0}s from meas_in_buffer ({1} export={2})..."
               .format(round(SNIPPET_LENGTH / RATE, 2), file_names[1], EXPORT_WAV))
 
-        # Use queues and threading here to ensure we capture identical parts of the song
-        ref_in_rec_queue = queue.Queue(maxsize=1)
-        meas_in_rec_queue = queue.Queue(maxsize=1)
+        # Arrays in which to record
+        ref_in_rec = np.zeros(SNIPPET_LENGTH, dtype=NP_FORMAT)
+        meas_in_rec = np.zeros(SNIPPET_LENGTH, dtype=NP_FORMAT)
 
-        # To ensure synchronised recording
-        ref_in_start_flag = threading.Event()
-        meas_in_start_flag = threading.Event()
+        # Use threading here to ensure we capture identical parts of the song
+        # Use events to control exactly when each recording starts
+        ref_in_start_event = threading.Event()
+        meas_in_start_event = threading.Event()
 
-        p_ref = threading.Thread(target=_record, args=(self.ref_in_buffer_queue, ref_in_rec_queue,
-                                                       SNIPPET_LENGTH, ref_in_start_flag))
-        p_meas = threading.Thread(target=_record, args=(self.meas_in_buffer_queue, meas_in_rec_queue,
-                                                        SNIPPET_LENGTH, meas_in_start_flag))
+        ref_thread = threading.Thread(target=_record, args=(self.ref_in_buffer, ref_in_rec, self.main_sync_event,
+                                                            ref_in_start_event))
+        meas_thread = threading.Thread(target=_record, args=(self.meas_in_buffer, meas_in_rec, self.meas_sync_event,
+                                                             meas_in_start_event))
 
-        p_ref.start()
-        p_meas.start()
+        ref_thread.start()
+        meas_thread.start()
 
         # To ensure synchronised recording
         time.sleep(0.2)
-        ref_in_start_flag.set()
-        time.sleep(0.174)  # This value was empirically determined
-        meas_in_start_flag.set()
+        ref_in_start_event.set()
+        time.sleep(MEAS_REF_LATENCY)
+        meas_in_start_event.set()
 
-        p_ref.join()
-        p_meas.join()
-
-        ref_in_rec = ref_in_rec_queue.get()
-        meas_in_rec = meas_in_rec_queue.get()
+        ref_thread.join()
+        meas_thread.join()
 
         if EXPORT_WAV:
             from scipy.io.wavfile import write
             write(file_names[0], RATE, ref_in_rec)
             write(file_names[1], RATE, meas_in_rec)
 
-        print("Recorded {0}s from ref_in_buffer_queue to REF_IN_REC ({1} export={2})"
+        print("Recorded {0}s from ref_in_buffer to REF_IN_REC ({1} export={2})"
               .format(round(SNIPPET_LENGTH / RATE, 2), file_names[0], EXPORT_WAV))
-        print("Recorded {0}s from meas_in_buffer_queue to MEAS_IN_BFR ({1} export={2})"
+        print("Recorded {0}s from meas_in_buffer to MEAS_IN_BFR ({1} export={2})"
               .format(round(SNIPPET_LENGTH / RATE, 2), file_names[1], EXPORT_WAV))
 
         x = np.arange(0, SNIPPET_LENGTH/RATE, 1 / RATE, dtype=NP_FORMAT)
@@ -697,26 +693,26 @@ class Flag(object):
         return self.state
 
 
-def _record(bfr_queue, rec_queue, rec_length, start_flag):
+def _record(bfr_array, rec_array, stream_sync_event, start_event):
     """
-    Records into a numpy array of rec_length from the queue object bfr_queue.
-    Takes values from the buffer and puts them sequentially in the numpy array.
-    Puts the resulting recording in rec_queue.
+    Records into rec_array from bfr_array.
+    Takes values from the buffer and puts them sequentially in the rec array.
+    stream_sync_event: acts as a clock to ensure the buffer does not get written more than once,
+    but synchronises with the stream frequency.
+    start_event: to ensure synchronised recording for multiple threads
     """
     time.sleep(0.2)  # Wait to ensure buffer is full before beginning recording
-    assert rec_length % BUFFER == 0, \
-        "The recording array length needs to be an integer multiple of the buffer length"
+    assert len(rec_array) % len(bfr_array) == 0, \
+        "The recording array length needs to be an integer multiple of the buffer size"
 
-    num_iters = int(rec_length / BUFFER)
-    rec = np.zeros(rec_length, dtype=NP_FORMAT)
+    num_iters = int(len(rec_array) / len(bfr_array))
 
-    start_flag.wait()
+    start_event.wait()
 
     for i in range(num_iters):
-        bfr = bfr_queue.get()  # This waits until the buffer is full, then fetches it
-        rec[i * BUFFER:(i + 1) * BUFFER] = bfr[:]  # Record the audio to the array
-
-    rec_queue.put(rec)
+        stream_sync_event.wait()  # This waits until the buffer is full, then fetches it
+        rec_array[i * BUFFER:(i + 1) * BUFFER] = bfr_array[:]  # Record the audio to the array
+        stream_sync_event.clear()  # Clears the flag and waits for the stream to set it again
 
 
 def convert_to_dbfs(y):

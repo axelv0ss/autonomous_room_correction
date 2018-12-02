@@ -16,14 +16,49 @@ class Program(QWidget):
         self.setWindowTitle(self.title)
         self.setGeometry(200, 50, 1200, 1000)
 
-        self.bypass_chain = Flag(False)
-
+        self.init_gui()
+        self.init_shared_objects()
         self.init_queues()
         self.init_filter_chain()
-        self.init_streams()
-        self.init_gui()
         self.init_plots()
         self.show()
+        self.init_streams()
+
+    def init_shared_objects(self):
+        self.ref_in_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
+        self.meas_out_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
+        self.meas_in_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
+        self.bypass_chain = Flag(False)
+        self.shutting_down = Flag(False)
+        self.main_stream_paused = Flag(False)
+        self.main_sync_event = threading.Event()  # Acts as a clock for synchronised recording
+        self.meas_sync_event = threading.Event()  # Acts as a clock for synchronised recording
+
+    def init_queues(self):
+        self.bg_model_queue = Queue()
+        self.latency_queue = Queue()
+        self.filter_queue = Queue()
+        self.rtf_queue = Queue()
+
+    def init_filter_chain(self):
+        f1 = PeakFilter(fc=50, gain=-10, q=0.5)
+        f2 = PeakFilter(fc=120, gain=-5, q=1)
+        f3 = PeakFilter(fc=300, gain=5, q=1)
+        f4 = PeakFilter(fc=625, gain=5, q=2)
+        f5 = PeakFilter(fc=1250, gain=2, q=1)
+        f6 = PeakFilter(fc=2500, gain=-20, q=0.8)
+        f7 = PeakFilter(fc=5000, gain=-5, q=1)
+        f8 = PeakFilter(fc=10000, gain=5, q=1)
+        f9 = PeakFilter(fc=20000, gain=-1, q=3)
+        self.chain = FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9)
+
+    def init_streams(self):
+        self.main_stream = MainStream(self.ref_in_buffer, self.meas_out_buffer, self.chain, self.bypass_chain,
+                                      self.main_stream_paused, self.shutting_down, self.main_sync_event)
+        self.main_stream.start()
+        time.sleep(0.5)  # Required to avoid SIGSEGV error
+        self.meas_stream = MeasStream(self.meas_in_buffer, self.shutting_down, self.meas_sync_event)
+        self.meas_stream.start()
 
     def init_gui(self):
         self.figure = Figure()
@@ -37,21 +72,22 @@ class Program(QWidget):
         self.bg_btn.clicked.connect(self.start_bg_model_measurement)
         self.latency_btn = QPushButton("Take Latency Measurement")
         self.latency_btn.clicked.connect(self.start_latency_measurement)
-        # self.alg_btn = QPushButton("Start Algorithm")
-        # self.alg_btn.clicked.connect(self.start_algorithm)
 
-        self.alg_btn = QPushButton("Randomise Filter")
-        self.alg_btn.clicked.connect(self.random_filter_settings)
+        self.rndflt_btn = QPushButton("Randomise Filter")
+        self.rndflt_btn.clicked.connect(self.random_filter_settings)
+        self.alg_btn = QPushButton("Start Algorithm")
+        self.alg_btn.clicked.connect(self.start_algorithm)
 
-        self.bypass_cb = QCheckBox("Bypass")
-        self.bypass_cb.clicked.connect(self.toggle_bypass)
+        self.bypass_cbox = QCheckBox("Bypass")
+        self.bypass_cbox.clicked.connect(self.toggle_bypass)
 
         button_layout = QHBoxLayout()
         # button_layout.addStretch()
         button_layout.addWidget(self.bg_btn)
         button_layout.addWidget(self.latency_btn)
+        button_layout.addWidget(self.rndflt_btn)
         button_layout.addWidget(self.alg_btn)
-        button_layout.addWidget(self.bypass_cb)
+        button_layout.addWidget(self.bypass_cbox)
 
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.toolbar)
@@ -103,41 +139,12 @@ class Program(QWidget):
 
         self.canvas.draw()
 
-    def init_queues(self):
-        self.ref_in_buffer_queue = Queue(maxsize=1)
-        self.meas_out_buffer_queue = Queue(maxsize=1)
-        self.meas_in_buffer_queue = Queue(maxsize=1)
-
-        self.bg_model_queue = Queue()
-        self.latency_queue = Queue()
-        self.filter_queue = Queue()
-        self.rtf_queue = Queue()
-
-    def init_filter_chain(self):
-        f1 = PeakFilter(fc=50, gain=-10, q=0.5)
-        f2 = PeakFilter(fc=120, gain=-5, q=1)
-        f3 = PeakFilter(fc=300, gain=5, q=1)
-        f4 = PeakFilter(fc=625, gain=5, q=2)
-        f5 = PeakFilter(fc=1250, gain=2, q=1)
-        f6 = PeakFilter(fc=2500, gain=-20, q=0.8)
-        f7 = PeakFilter(fc=5000, gain=-5, q=1)
-        f8 = PeakFilter(fc=10000, gain=5, q=1)
-        f9 = PeakFilter(fc=20000, gain=-1, q=3)
-        self.chain = FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9)
-
-    def init_streams(self):
-        self.main_stream = MainStream(self.ref_in_buffer_queue, self.meas_out_buffer_queue,
-                                      self.chain, self.bypass_chain)
-        self.main_stream.start()
-        time.sleep(0.5)  # Required to avoid SIGSEGV error
-        self.meas_stream = MeasStream(self.meas_in_buffer_queue)
-        self.meas_stream.start()
-
     def toggle_buttons_state(self):
         new_state = not self.bg_btn.isEnabled()
         self.bg_btn.setEnabled(new_state)
         self.latency_btn.setEnabled(new_state)
         self.alg_btn.setEnabled(new_state)
+        self.rndflt_btn.setEnabled(new_state)
         self.bypass_cb.setEnabled(new_state)
 
     def toggle_bypass(self):
@@ -182,20 +189,28 @@ class Program(QWidget):
             self.filter_ax.semilogx(f, convert_to_dbfs(h), label=label, linestyle="--", zorder=-1, linewidth=1)
         # self.filter_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
+
+    def update_rtf_ax(self):
+        # TODO
+        self.rtf_ax.lines = list()
+        self.rtf_ax.plot(*self.ref)
+        self.rtf_ax.plot(*self.meas)
+        self.canvas.draw()
     
     def start_bg_model_measurement(self):
         # Deactivate buttons
         self.toggle_buttons_state()
         # Pause the main stream
-        self.main_stream.toggle_pause()
+        self.main_stream_paused.set_state(True)
         time.sleep(0.1)
         # Spawn the model generating thread
-        self.bg_model_measurement = BackgroundModel(self.bg_model_queue, self.meas_in_buffer_queue)
+        self.bg_model_measurement = BackgroundModel(self.bg_model_queue, self.meas_in_buffer,
+                                                    self.meas_sync_event)
         self.bg_model_measurement.start()
         self.bg_model_measurement.finished.connect(self.collect_bg_model_measurement)
 
     def collect_bg_model_measurement(self):
-        self.main_stream.toggle_pause()
+        self.main_stream_paused.set_state(False)
         time.sleep(0.1)
         self.bg_model = self.bg_model_queue.get()
         self.bg_snippets = self.bg_model_queue.get()
@@ -206,8 +221,8 @@ class Program(QWidget):
     def start_latency_measurement(self):
         # Deactivate buttons
         self.toggle_buttons_state()
-        self.latency_measurement = LatencyCalibration(self.latency_queue, self.ref_in_buffer_queue,
-                                                      self.meas_in_buffer_queue)
+        self.latency_measurement = LatencyCalibration(self.latency_queue, self.ref_in_buffer, self.meas_in_buffer,
+                                                      self.main_sync_event, self.meas_sync_event)
         self.latency_measurement.start()
         self.latency_measurement.finished.connect(self.collect_latency_measurement)
     
@@ -231,22 +246,20 @@ class Program(QWidget):
 
     def start_algorithm(self):
         # Deactivate buttons
-        self.bg_btn.setEnabled(False)
-        self.alg_btn.setEnabled(False)
-        # TODO Pass in start parameters here, like an initial population
-        self.algorithm_iteration = AlgorithmIteration(self.algorithm_queue, self.ref_in_buffer_queue,
-                                                      self.meas_in_buffer_queue)
+        self.toggle_buttons_state()
+        # TODO Pass in start parameters here, like an initial population etc?
+        self.algorithm_iteration = AlgorithmIteration(self.rtf_queue, self.ref_in_buffer, self.meas_in_buffer,
+                                                      self.main_sync_event, self.meas_sync_event)
         self.algorithm_iteration.start()
         self.algorithm_iteration.finished.connect(self.collect_algorithm)
 
     def collect_algorithm(self):
-        self.ref = self.algorithm_queue.get()
-        self.meas = self.algorithm_queue.get()
-        self.update_freq_resp_ax()
+        self.ref = self.rtf_queue.get()
+        self.meas = self.rtf_queue.get()
+        self.update_rtf_ax()
 
         # Reactivate buttons
-        self.bg_btn.setEnabled(True)
-        self.alg_btn.setEnabled(True)
+        self.toggle_buttons_state()
 
 
     # def update_filter_ax(self):
@@ -278,8 +291,6 @@ class Program(QWidget):
         Overrides superclass method.
         Ensures streams exit nicely
         """
-        self.main_stream.shutdown()
-        time.sleep(0.1)
-        self.meas_stream.shutdown()
-        time.sleep(0.1)
+        self.shutting_down.set_state(True)
+        time.sleep(0.2)
         event.accept()

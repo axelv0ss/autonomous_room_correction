@@ -17,7 +17,7 @@ BACKGROUND_LENGTH = 2048 * 200
 
 # How much time (in seconds) that the meas_in stream is ahead of ref_in stream.
 # This parameter can be calibrated with help of the interface
-MEAS_REF_LATENCY = 0.160
+MEAS_REF_LATENCY = 0.155
 LATENCY_MEASUREMENT_LENGTH = 2048 * 100
 
 F_LIMITS = [20, 20480]
