@@ -99,6 +99,9 @@ class FilterChain(object):
         # Construct an iterator to go through the elements as required, ignoring the FLAG
         self.filters[i].set_params(fc, gain, q)
 
+    def get_num_filters(self):
+        return len(self.filters)
+
     def get_chain_tf(self):
         """
         Get the (complex) Transfer Function of the chain.
@@ -132,17 +135,15 @@ class FilterChain(object):
 
 
 class MainStream(QtCore.QThread):
-    def __init__(self, ref_in_buffer_queue, meas_out_buffer_queue, chain_queue, bypass_queue):
+    def __init__(self, ref_in_buffer_queue, meas_out_buffer_queue, chain, bypass_chain):
         super().__init__()
         self.paused = False
         self.shutting_down = False
         self.ref_in_buffer_queue = ref_in_buffer_queue
         self.meas_out_buffer_queue = meas_out_buffer_queue
 
-        self.chain_queue = chain_queue
-        self.chain = None
-        self.bypass_queue = bypass_queue
-        self.bypass = False
+        self.chain = chain
+        self.bypass_chain = bypass_chain
 
     def run(self):
         p = pyaudio.PyAudio()
@@ -195,20 +196,20 @@ class MainStream(QtCore.QThread):
             self.ref_in_buffer_queue.put_nowait(in_data)
 
         # If the EQ settings have changed, apply them. Otherwise ignore.
-        try:
-            self.chain = self.chain_queue.get_nowait()
-            print("Chain settings updated!\n{0}".format(self.chain.get_chain_settings()))
-        except queue.Empty:
-            pass
+        # try:
+        #     self.chain = self.chain_queue.get_nowait()
+        #     print("Chain settings updated!\n{0}".format(self.chain.get_chain_settings()))
+        # except queue.Empty:
+        #     pass
 
         # Check if bypass state has changed.
-        try:
-            self.bypass = self.bypass_queue.get_nowait()
-        except queue.Empty:
-            pass
+        # try:
+        #     self.bypass = self.bypass_queue.get_nowait()
+        # except queue.Empty:
+        #     pass
 
         # Filter/process data
-        if not self.bypass:
+        if not self.bypass_chain.get_state():
             out_data = self.chain.filter_signal(in_data)
         else:
             out_data = in_data
@@ -682,6 +683,20 @@ class AlgorithmIteration(QtCore.QThread):
         self.snippets_fd = temp
 
 
+class Flag(object):
+    """
+    A simple boolean flag object to pass between threads
+    """
+    def __init__(self, init_state):
+        self.state = init_state
+
+    def set_state(self, state):
+        self.state = state
+
+    def get_state(self):
+        return self.state
+
+
 def _record(bfr_queue, rec_queue, rec_length, start_flag):
     """
     Records into a numpy array of rec_length from the queue object bfr_queue.
@@ -710,6 +725,7 @@ def convert_to_dbfs(y):
     [dB] = 20 * log10(mag/ref), where ref = 1
     """
     return 20 * np.log10(np.abs(y))
+
 
 # def main_stream(REF_IN_BFR, MEAS_OUT_BFR, CHAIN_SETTINGS, MAIN_STREAM_ENABLED):
 #     """
