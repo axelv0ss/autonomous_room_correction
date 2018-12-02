@@ -2,12 +2,13 @@ from backend import *
 import threading
 from queue import Queue
 
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QCheckBox
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
 # TODO is meas_out_buffer_queue really needed?
+
 
 class GUI(QWidget):
     def __init__(self):
@@ -25,6 +26,7 @@ class GUI(QWidget):
 
         self.init_gui()
         self.init_queues()
+        self.init_filter_chain()
         self.init_streams()
         self.show()
 
@@ -36,20 +38,14 @@ class GUI(QWidget):
         (self.bg_model_ax, self.latency_ax), (self.filter_ax, self.rtf_ax) = self.figure.subplots(2, 2)
         self.figure.tight_layout()
 
-        # self.update_filter_ax()
-        # self.update_freq_resp_ax()
-        # self.update_rtf_ax()
-
         self.bg_btn = QPushButton("Take Background Measurement")
         self.bg_btn.clicked.connect(self.start_bg_model_measurement)
         self.latency_btn = QPushButton("Take Latency Measurement")
         self.latency_btn.clicked.connect(self.start_latency_measurement)
         self.alg_btn = QPushButton("Start Algorithm")
         self.alg_btn.clicked.connect(self.start_algorithm)
-        # self.main_btn = QPushButton("Start Main Stream")
-        # self.main_btn.clicked.connect(self.start_main_stream)
-        # self.meas_btn = QPushButton("Start Meas Stream")
-        # self.meas_btn.clicked.connect(self.start_meas_stream)
+        self.bypass_cb = QCheckBox("Bypass")
+        self.bypass_cb.clicked.connect(self.toggle_bypass)
 
         layout = QVBoxLayout()
         layout.addWidget(self.toolbar)
@@ -57,8 +53,7 @@ class GUI(QWidget):
         layout.addWidget(self.bg_btn)
         layout.addWidget(self.latency_btn)
         layout.addWidget(self.alg_btn)
-        # layout.addWidget(self.main_btn)
-        # layout.addWidget(self.meas_btn)
+        layout.addWidget(self.bypass_cb)
 
         self.setLayout(layout)
 
@@ -73,12 +68,23 @@ class GUI(QWidget):
         self.rtf_queue = Queue()
 
         self.chain_queue = Queue(maxsize=1)
-        # Todo: Refine the filterchain class, make it better. Now targeted to old mp...
-        self.chain_queue.put(FilterChain([0, 200, 0.5, 1, 2000, -20, 0.5, 10000, 2, 0.5, 12000, -2, 0.5, 14000, 2, 0.5,
-                                          16000, -2, 0.5, 18000, 2, 0.5]))
+        self.bypass_queue = Queue(maxsize=1)
+
+    def init_filter_chain(self):
+        f1 = PeakFilter(fc=50, gain=-10, q=1)
+        f2 = PeakFilter(fc=120, gain=-5, q=1)
+        f3 = PeakFilter(fc=300, gain=5, q=1)
+        f4 = PeakFilter(fc=625, gain=5, q=1)
+        f5 = PeakFilter(fc=1250, gain=0, q=1)
+        f6 = PeakFilter(fc=2500, gain=-20, q=1)
+        f7 = PeakFilter(fc=5000, gain=0, q=1)
+        f8 = PeakFilter(fc=10000, gain=5, q=1)
+        f9 = PeakFilter(fc=20000, gain=0, q=1)
+        self.chain_queue.put(FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9))
 
     def init_streams(self):
-        self.main_stream = MainStream(self.ref_in_buffer_queue, self.meas_out_buffer_queue, self.chain_queue)
+        self.main_stream = MainStream(self.ref_in_buffer_queue, self.meas_out_buffer_queue,
+                                      self.chain_queue, self.bypass_queue)
         self.main_stream.start()
         time.sleep(1)  # Required to avoid SIGSEGV error
         self.meas_stream = MeasStream(self.meas_in_buffer_queue)
@@ -89,6 +95,14 @@ class GUI(QWidget):
         self.bg_btn.setEnabled(new_state)
         self.latency_btn.setEnabled(new_state)
         self.alg_btn.setEnabled(new_state)
+
+    def toggle_bypass(self):
+        if self.bypass_cb.isChecked():
+            print("\nFilters bypassed!")
+            self.bypass_queue.put(True)
+        else:
+            print("\nFilters active!")
+            self.bypass_queue.put(False)
     
     def start_bg_model_measurement(self):
         # Deactivate buttons

@@ -12,7 +12,6 @@ Have e.g. model_background, run_algorithm methods... (see program outline doc)
 import time
 from params import *
 from scipy import signal
-import multiprocessing as mp
 import threading
 from PyQt5 import QtCore
 import queue
@@ -28,13 +27,13 @@ class PeakFilter(object):
         :param gain: The gain (in dB) of the filter
         :param q: The Q-factor of the filter
         """
-        self._set_params(fc, gain, q)
+        self.set_params(fc, gain, q)
 
-    def _set_params(self, fc, gain, q):
+    def set_params(self, fc, gain, q):
         """
         Used by FilterChain to set parameters of each filter
         """
-        # Save instance variables
+        # Save new instance variables
         self.fc = fc
         self.gain = gain
         self.q = q
@@ -47,10 +46,10 @@ class PeakFilter(object):
         num = [1, 10 ** (self.gain / 20) * w_frac / self.q, w_frac ** 2]
         den = [1, w_frac / self.q, w_frac ** 2]
 
-        # Calculate coefficients in Z-domain using Bilinear transform
+        # Calculate coefficients in Z-domain using Bi-linear transform
         self.b, self.a = signal.bilinear(num, den)
 
-    def _get_b_a(self):
+    def get_b_a(self):
         """
         Used by FilterChain to get digital filter coefficients
         """
@@ -58,7 +57,8 @@ class PeakFilter(object):
 
     def get_settings(self):
         """
-        Used by FilterChain to print the state of the filter chain
+        Used by FilterChain to print the state of the filter chain.
+        Also used as legend in plot.
         """
         return "fc={0}, g={1}, q={2}".format(self.fc, self.gain, self.q)
 
@@ -66,24 +66,20 @@ class PeakFilter(object):
         """
         Get the Transfer Function of the filter
         """
-        w_f, h = signal.freqz(*self._get_b_a())
+        w_f, h = signal.freqz(*self.get_b_a())
         f = w_f * RATE / (2 * np.pi)
         return f, h
 
 
 class FilterChain(object):
-    def __init__(self, CHAIN_SETTINGS):
+    def __init__(self, *filters):
         """
-        :param FILTER_SETTINGS: Array of filter parameters
+        *filters: Arbitrary number of filter objects, e.g. PeakFilter
         """
-        self.filters = []
-        # Construct an iterator to go through the elements as required, ignoring the FLAG
-        iterator = zip(CHAIN_SETTINGS[1::3], CHAIN_SETTINGS[2::3], CHAIN_SETTINGS[3::3])
-        for fc, gain, q in iterator:
-            self.filters.append(PeakFilter(fc, gain, q))
+        self.filters = filters
 
         # Calculate initial conditions
-        self.zi = [signal.lfilter_zi(*filt._get_b_a()) for filt in self.filters]
+        self.zi = [signal.lfilter_zi(*filt.get_b_a()) for filt in self.filters]
 
     def filter_signal(self, data_in):
         """
@@ -92,40 +88,46 @@ class FilterChain(object):
         data_out = data_in
         # Filter data and update all initial conditions for the buffer of data
         for i, filt in enumerate(self.filters):
-            data_out, self.zi[i] = signal.lfilter(*filt._get_b_a(), data_out, zi=self.zi[i])
+            data_out, self.zi[i] = signal.lfilter(*filt.get_b_a(), data_out, zi=self.zi[i])
         return data_out
 
-    def set_filter_params(self, FILTER_SETTINGS):
+    def set_filter_params(self, i, fc, gain, q):
         """
-        new_settings: [FLAG, fc1, gain1, q1, fc2, gain2, q2, ...]
+        Updates the filter of index i with new settings fc, gain and q.
         """
         # Construct an iterator to go through the elements as required, ignoring the FLAG
-        iterator = enumerate(zip(FILTER_SETTINGS[1::3], FILTER_SETTINGS[2::3], FILTER_SETTINGS[3::3]))
-        for i, (fc, gain, q) in iterator:
-            self.filters[i]._set_params(fc, gain, q)
+        self.filters[i].set_params(fc, gain, q)
 
-    def get_tf_chain(self):
+    def get_chain_tf(self):
         f, H = self.filters[0].get_tf()
         if len(self.filters) > 1:
             for filter in self.filters[1:]:
                 H *= filter.get_tf()[1]
         return f, H
 
-    def get_filters(self):
-        return self.filters[:]
-
-    def get_settings(self):
+    def get_chain_settings(self):
         """
-        Get a string description of the state of the filter chain
+        Returns the current configuration of the filter chain in string form.
         """
         out = "Current settings of filter chain:"
         for i, filt in enumerate(self.filters):
             out += "\n{0} {1}".format(i, filt.get_settings())
         return out
 
+    def get_all_filters_settings_tf(self):
+        """
+        Get the current settings and transfer function of all filters in the chain.
+        Returns a list of dicts in the form:
+        [{"settings": str0, "tf": [f0, h0]}, {"settings": str1, "tf": [f1, h1]}, ...]
+        """
+        out = list()
+        for filt in self.filters:
+            out.append({"settings": filt.get_settings(), "tf": filt.get_tf()})
+        return out
+
 
 class MainStream(QtCore.QThread):
-    def __init__(self, ref_in_buffer_queue, meas_out_buffer_queue, chain_queue):
+    def __init__(self, ref_in_buffer_queue, meas_out_buffer_queue, chain_queue, bypass_queue):
         super().__init__()
         self.paused = False
         self.shutting_down = False
@@ -133,7 +135,9 @@ class MainStream(QtCore.QThread):
         self.meas_out_buffer_queue = meas_out_buffer_queue
 
         self.chain_queue = chain_queue
-        self.chain = False
+        self.chain = None
+        self.bypass_queue = bypass_queue
+        self.bypass = False
 
     def run(self):
         p = pyaudio.PyAudio()
@@ -174,37 +178,46 @@ class MainStream(QtCore.QThread):
         """
         Callback function for the ref_in/meas_out stream
         """
-        audio_data = np.fromstring(in_bytes, dtype=NP_FORMAT)   # Convert audio data in bytes to an array.
-        audio_data = np.reshape(audio_data, (BUFFER, 2))        # Reshape array to two channels.
-        audio_data = np.average(audio_data, axis=1)             # Convert audio data to mono by averaging channels.
+        in_data = np.fromstring(in_bytes, dtype=NP_FORMAT)   # Convert audio data in bytes to an array.
+        in_data = np.reshape(in_data, (BUFFER, 2))        # Reshape array to two channels.
+        in_data = np.average(in_data, axis=1)             # Convert audio data to mono by averaging channels.
 
         # Write ref_in data to shared queue.
         try:
-            self.ref_in_buffer_queue.put_nowait(audio_data)
+            self.ref_in_buffer_queue.put_nowait(in_data)
         except queue.Full:
             self.ref_in_buffer_queue.get_nowait()
-            self.ref_in_buffer_queue.put_nowait(audio_data)
+            self.ref_in_buffer_queue.put_nowait(in_data)
 
-        # If the EQ settings have changed, apply them. Otherwise ignore
+        # If the EQ settings have changed, apply them. Otherwise ignore.
         try:
             self.chain = self.chain_queue.get_nowait()
-            print("Chain settings updated!\n{0}".format(self.chain.get_settings()))
+            print("Chain settings updated!\n{0}".format(self.chain.get_chain_settings()))
         except queue.Empty:
             pass
 
-        if self.chain:
-            audio_data = self.chain.filter_signal(audio_data)     # Filter/process data
+        # Check if bypass state has changed.
+        try:
+            self.bypass = self.bypass_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        # Filter/process data
+        if not self.bypass:
+            out_data = self.chain.filter_signal(in_data)
+        else:
+            out_data = in_data
 
         # Write meas_out data to shared queue.
-        # TODO Necessary to write this data to a shared queue??
+        # TODO Is it even necessary to write this data to a shared queue??
         try:
-            self.meas_out_buffer_queue.put_nowait(audio_data)
+            self.meas_out_buffer_queue.put_nowait(out_data)
         except queue.Full:
             self.meas_out_buffer_queue.get_nowait()
-            self.meas_out_buffer_queue.put_nowait(audio_data)
+            self.meas_out_buffer_queue.put_nowait(out_data)
 
-        audio_data = np.repeat(audio_data, 2)                   # Convert to 2-channel audio for compatib. with stream
-        out_bytes = audio_data.astype(NP_FORMAT).tostring()     # Convert audio data back to bytes and return
+        out_data = np.repeat(out_data, 2)                   # Convert to 2-channel audio for compatib. with stream
+        out_bytes = out_data.astype(NP_FORMAT).tostring()     # Convert audio data back to bytes and return
         return out_bytes, pyaudio.paContinue
 
     def toggle_pause(self):

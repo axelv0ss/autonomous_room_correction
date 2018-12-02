@@ -23,7 +23,7 @@ LATENCY_MEASUREMENT_LENGTH = 2048 * 100
 F_LIMITS = [20, 20480]
 OCT_FRAC = 1 / 24
 
-EXPORT_WAV = True
+EXPORT_WAV = True  # Export wav
 
 assert SNIPPET_LENGTH % BUFFER == 0, "SNIPPET_LENGTH must be an integer multiple of BUFFER"
 assert BACKGROUND_LENGTH % BUFFER == 0, "BACKGROUND_LENGTH must be an integer multiple of BUFFER"
