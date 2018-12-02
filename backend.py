@@ -1,14 +1,3 @@
-"""
-Has a class called Program with all necessary methods
-- Shared arrays,
-- Process functions.
-- Program
-- FilterChain
-- PeakFilter
-Have mp process objects defined and spawned within the Program class in init()
-Have e.g. model_background, run_algorithm methods... (see program outline doc)
-"""
-
 import time
 from params import *
 from scipy import signal
@@ -96,7 +85,6 @@ class FilterChain(object):
         """
         Updates the filter of index i with new settings fc, gain and q.
         """
-        # Construct an iterator to go through the elements as required, ignoring the FLAG
         self.filters[i].set_params(fc, gain, q)
 
     def get_num_filters(self):
@@ -192,19 +180,6 @@ class MainStream(QtCore.QThread):
         # Write ref_in data to ref_in_buffer.
         self.ref_in_buffer[:] = in_data[:]
 
-        # If the EQ settings have changed, apply them. Otherwise ignore.
-        # try:
-        #     self.chain = self.chain_queue.get_nowait()
-        #     print("Chain settings updated!\n{0}".format(self.chain.get_chain_settings()))
-        # except queue.Empty:
-        #     pass
-
-        # Check if bypass state has changed.
-        # try:
-        #     self.bypass = self.bypass_queue.get_nowait()
-        # except queue.Empty:
-        #     pass
-
         # Filter/process data
         if not self.bypass_chain.get_state():
             out_data = self.chain.filter_signal(in_data)
@@ -221,12 +196,6 @@ class MainStream(QtCore.QThread):
         self.main_sync_event.set()  # Sets the flag for synchronised recording: buffer ready for collection
 
         return out_bytes, pyaudio.paContinue
-
-    # def toggle_pause(self):
-    #     self.paused = not self.paused
-    #
-    # def shutdown(self):
-    #     self.shutting_down = True
 
 
 class MeasStream(QtCore.QThread):
@@ -269,9 +238,6 @@ class MeasStream(QtCore.QThread):
 
         self.meas_sync_event.set()  # Sets the flag for synchronised recording: buffer ready for collection
         return in_bytes, pyaudio.paContinue
-
-    # def shutdown(self):
-    #     self.shutting_down = True
 
 
 class BackgroundModel(QtCore.QThread):
@@ -426,7 +392,7 @@ class BackgroundModel(QtCore.QThread):
 
         # Do the averaging
         x_model = self.snippets_fd[0][0]
-        y_model = np.array(self.snippets_fd)[:, 1].mean(axis=0)  # TODO ensure this works as intended
+        y_model = np.array(self.snippets_fd)[:, 1].mean(axis=0)
 
         self.bg_model_fd = (x_model, y_model)
 
@@ -455,9 +421,9 @@ class BackgroundModel(QtCore.QThread):
         Takes the linear average of the elements in each bin to obtain a smoother function.
         Takes in arrays of FT spectrum and log-bins them using a spacing of OCT_FRAC.
         """
-        # Provides evenly spaced bins on log axes
+        # Provides evenly spaced bins on log axes. x_out provides the center of each bin.
         bin_edges = F_LIMITS[0] * 2 ** np.arange(0, 10 + OCT_FRAC, step=OCT_FRAC)
-        x_out = np.sqrt(bin_edges[:-1] * (bin_edges[1:] - 1))
+        x_out = np.sqrt(bin_edges[:-1] * (bin_edges[1:]))
 
         # Vectorised for efficiency
         indices = np.digitize(x_in, bin_edges)
@@ -717,139 +683,8 @@ def _record(bfr_array, rec_array, stream_sync_event, start_event):
 
 def convert_to_dbfs(y):
     """
-    Converts the input array y into dBFS units using
+    Converts an input array y into dBFS units using
     [dB] = 20 * log10(mag/ref), where ref = 1
     """
     return 20 * np.log10(np.abs(y))
-
-
-# def main_stream(REF_IN_BFR, MEAS_OUT_BFR, CHAIN_SETTINGS, MAIN_STREAM_ENABLED):
-#     """
-#     Spawned as a separate process.
-#     Handles the reference in and measurement out audio streams.
-#     Records to shared array REF_IN_BFR and MEAS_OUT_BFR.
-#     """
-#     # Initialise objects
-#     p = pyaudio.PyAudio()
-#     # MAIN_STREAM_ENABLED.value = 1
-#     # chain = FilterChain(CHAIN_SETTINGS)
-#
-#     def callback(in_bytes, frame_count, time_info, flag):
-#         """
-#         Callback function for the ref_in/meas_out stream
-#         """
-#         audio_data = np.fromstring(in_bytes, dtype=NP_FORMAT)   # Convert audio data in bytes to an array.
-#         audio_data = np.reshape(audio_data, (BUFFER, 2))        # Reshape array to two channels.
-#         audio_data = np.average(audio_data, axis=1)             # Convert audio data to mono by averaging channels.
-#         REF_IN_BFR[:] = audio_data[:]                           # Write ref_in data to shared array.
-#
-#         if CHAIN_SETTINGS[0] != 0:                              # If the EQ settings have changed,
-#             chain.set_filter_params(CHAIN_SETTINGS)             # apply the new settings
-#             CHAIN_SETTINGS[0] = 0                               # Reset the flag
-#             print("\nFilter settings updated!\n{0}"
-#                   .format(chain.get_settings()))
-#
-#         audio_data = chain.filter_signal(audio_data)            # Filter/process data
-#
-#         MEAS_OUT_BFR[:] = audio_data[:]                         # Write meas_out data to shared array.
-#         audio_data = np.repeat(audio_data, 2)                   # Convert to 2-channel audio for compatib. with stream
-#         out_bytes = audio_data.astype(NP_FORMAT).tostring()     # Convert audio data back to bytes and return
-#         return out_bytes, pyaudio.paContinue
-#
-#     # Initialise stream
-#     stream = p.open(format=PA_FORMAT,
-#                     frames_per_buffer=BUFFER,
-#                     rate=RATE,
-#                     channels=2,
-#                     input=True,
-#                     output=True,
-#                     input_device_index=2,
-#                     output_device_index=1,
-#                     stream_callback=callback)
-#
-#     print("\nMain stream started!")
-#     print("Available audio devices by index:")
-#     for i in range(p.get_device_count()):
-#         print(i, p.get_device_info_by_index(i)['name'])
-#     print(chain.get_settings())
-#
-#     while True:
-#         time.sleep(0.1)
-#         if PROGRAM_ALIVE.value == 0:
-#             print("\nMain stream shut down!")
-#             break
-#         elif stream.is_active() and MAIN_STREAM_ENABLED.value == 1:
-#             pass
-#         elif stream.is_active() and MAIN_STREAM_ENABLED.value == 0:
-#             print("\nMain stream paused!")
-#             stream.stop_stream()
-#         elif not stream.is_active() and MAIN_STREAM_ENABLED.value == 1:
-#             print("\nMain stream started!")
-#             stream.start_stream()
-#         elif not stream.is_active() and MAIN_STREAM_ENABLED.value == 0:
-#             pass
-#
-#     stream.close()
-#     p.terminate()
-
-
-# def meas_stream(MEAS_IN_BFR):
-#     """
-#     Spawned as a separate process.
-#     Handles the measurement in stream.
-#     Records to shared array MEAS_IN_BFR.
-#     """
-#     p = pyaudio.PyAudio()
-#     MEAS_STREAM_ENABLED.value = 1
-#
-#     def callback(in_bytes, frame_count, time_info, flag):
-#         """
-#         Callback function for the meas_in stream
-#         """
-#         audio_data = np.fromstring(in_bytes, dtype=NP_FORMAT)   # Convert audio data in bytes to an array.
-#         MEAS_IN_BFR[:] = audio_data[:]                          # Write meas_in data to shared array.
-#         return in_bytes, pyaudio.paContinue
-#
-#     stream = p.open(format=PA_FORMAT,
-#                     frames_per_buffer=BUFFER,
-#                     rate=RATE,
-#                     channels=1,
-#                     input=True,
-#                     input_device_index=0,
-#                     stream_callback=callback)
-#
-#     print("\nMeas stream started!")
-#
-#     while True:
-#         time.sleep(0.1)
-#         if PROGRAM_ALIVE.value == 0:
-#             print("\nMeas stream shut down!")
-#             break
-#         elif stream.is_active() and MEAS_STREAM_ENABLED.value == 1:
-#             pass
-#         elif stream.is_active() and MEAS_STREAM_ENABLED.value == 0:
-#             print("\nMeas stream paused!")
-#             stream.stop_stream()
-#         elif not stream.is_active() and MEAS_STREAM_ENABLED.value == 1:
-#             print("\nMeas stream started!")
-#             stream.start_stream()
-#         elif not stream.is_active() and MEAS_STREAM_ENABLED.value == 0:
-#             pass
-#
-#     stream.close()
-#     p.terminate()
-
-#
-# def toggle_main_stream():
-#     if MAIN_STREAM_ENABLED.value == 1:
-#         MAIN_STREAM_ENABLED.value = 0
-#     elif MAIN_STREAM_ENABLED.value == 0:
-#         MAIN_STREAM_ENABLED.value = 1
-#
-#
-# def toggle_meas_stream():
-#     if MEAS_STREAM_ENABLED.value == 1:
-#         MEAS_STREAM_ENABLED.value = 0
-#     elif MEAS_STREAM_ENABLED.value == 0:
-#         MEAS_STREAM_ENABLED.value = 1
 

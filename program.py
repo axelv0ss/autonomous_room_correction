@@ -1,12 +1,12 @@
 from backend import *
 from queue import Queue
 
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QCheckBox
+from PyQt5.QtWidgets import QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QCheckBox
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-# TODO is meas_out_buffer_queue really needed?
+# TODO is meas_out_buffer really needed?
 
 
 class Program(QWidget):
@@ -41,15 +41,15 @@ class Program(QWidget):
         self.rtf_queue = Queue()
 
     def init_filter_chain(self):
-        f1 = PeakFilter(fc=50, gain=-10, q=0.5)
-        f2 = PeakFilter(fc=120, gain=-5, q=1)
-        f3 = PeakFilter(fc=300, gain=5, q=1)
-        f4 = PeakFilter(fc=625, gain=5, q=2)
-        f5 = PeakFilter(fc=1250, gain=2, q=1)
-        f6 = PeakFilter(fc=2500, gain=-20, q=0.8)
-        f7 = PeakFilter(fc=5000, gain=-5, q=1)
-        f8 = PeakFilter(fc=10000, gain=5, q=1)
-        f9 = PeakFilter(fc=20000, gain=-1, q=3)
+        f1 = PeakFilter(fc=50, gain=0, q=1)
+        f2 = PeakFilter(fc=120, gain=0, q=1)
+        f3 = PeakFilter(fc=300, gain=0, q=1)
+        f4 = PeakFilter(fc=625, gain=0, q=1)
+        f5 = PeakFilter(fc=1250, gain=0, q=1)
+        f6 = PeakFilter(fc=2500, gain=0, q=1)
+        f7 = PeakFilter(fc=5000, gain=0, q=1)
+        f8 = PeakFilter(fc=10000, gain=0, q=1)
+        f9 = PeakFilter(fc=20000, gain=0, q=1)
         self.chain = FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9)
 
     def init_streams(self):
@@ -145,10 +145,10 @@ class Program(QWidget):
         self.latency_btn.setEnabled(new_state)
         self.alg_btn.setEnabled(new_state)
         self.rndflt_btn.setEnabled(new_state)
-        self.bypass_cb.setEnabled(new_state)
+        self.bypass_cbox.setEnabled(new_state)
 
     def toggle_bypass(self):
-        if self.bypass_cb.isChecked():
+        if self.bypass_cbox.isChecked():
             print("\nFilters bypassed!")
             self.bypass_chain.set_state(True)
         else:
@@ -204,8 +204,7 @@ class Program(QWidget):
         self.main_stream_paused.set_state(True)
         time.sleep(0.1)
         # Spawn the model generating thread
-        self.bg_model_measurement = BackgroundModel(self.bg_model_queue, self.meas_in_buffer,
-                                                    self.meas_sync_event)
+        self.bg_model_measurement = BackgroundModel(self.bg_model_queue, self.meas_in_buffer, self.meas_sync_event)
         self.bg_model_measurement.start()
         self.bg_model_measurement.finished.connect(self.collect_bg_model_measurement)
 
@@ -234,8 +233,16 @@ class Program(QWidget):
         # Reactivate buttons
         self.toggle_buttons_state()
 
-    # TODO
+    def closeEvent(self, event):
+        """
+        Overrides superclass method.
+        Ensures streams exit nicely
+        """
+        self.shutting_down.set_state(True)
+        time.sleep(0.2)
+        event.accept()
 
+    # TODO: EVERYTHING BELOW IS UNFINISHED
     def random_filter_settings(self):
         """
         Toy function to simulate a change in EQ.
@@ -243,6 +250,7 @@ class Program(QWidget):
         freqs = [50, 120, 300, 625, 1250, 2500, 5000, 10000, 20000]
         for i, fc in enumerate(freqs):
             self.chain.set_filter_params(i, fc, np.random.randint(-20, 5), np.random.random() + 0.5)
+        self.update_filter_ax()
 
     def start_algorithm(self):
         # Deactivate buttons
@@ -261,36 +269,8 @@ class Program(QWidget):
         # Reactivate buttons
         self.toggle_buttons_state()
 
+    def export_data(self):
+        # TODO: Need this functionality for saving data and later replotting.
+        # Preferably a log of the whole program, saving everything. Not crucial at this stage.
+        pass
 
-    # def update_filter_ax(self):
-    #     # Generate the plot data
-    #     curr_chain = FilterChain(CHAIN_SETTINGS)
-    #
-    #     # Discard the old graph
-    #     self.filter_ax.clear()
-    #
-    #     # Plot
-    #     for filt in curr_chain.get_filters():
-    #         f, h = filt.get_tf()
-    #         self.filter_ax.semilogx(f, 20 * np.log10(abs(h)), label=filt.get_settings())
-    #     f, H = curr_chain.get_tf_chain()
-    #     self.filter_ax.semilogx(f, 20 * np.log10(abs(H)), label="Chain", linestyle="--")
-    #
-    #     self.filter_ax.set_title("Filter Curve")
-    #     self.filter_ax.set_ylabel('Transfer Function ' + r'$H(z)$' + ' [dB]')
-    #     self.filter_ax.set_xlabel('Frequency [Hz]')
-    #     self.filter_ax.legend()
-    #     self.filter_ax.minorticks_on()
-    #     self.filter_ax.grid(which="major", linestyle="-", alpha=0.4)
-    #     self.filter_ax.grid(which="minor", linestyle="--", alpha=0.2)
-    #
-    #     self.canvas.draw()
-
-    def closeEvent(self, event):
-        """
-        Overrides superclass method.
-        Ensures streams exit nicely
-        """
-        self.shutting_down.set_state(True)
-        time.sleep(0.2)
-        event.accept()
