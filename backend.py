@@ -486,6 +486,7 @@ class AlgorithmIteration(QtCore.QThread):
         self.ref_in_snippet_fd_smooth = None
         self.meas_in_snippet_fd_smooth = None
         self.rtf = None
+        self.rms = None
 
     def run(self):
         print("\nCalculating RTF:")
@@ -500,12 +501,15 @@ class AlgorithmIteration(QtCore.QThread):
         self.subtract_bg_from_meas()
         self.normalise_snippets_fd()
         self.calculate_rtf()
+        self.calculate_rtf_rms()
 
         # Return
         print("RTF calculated!")
         self.sendback_queue.put(self.ref_in_snippet_fd_smooth)
         self.sendback_queue.put(self.meas_in_snippet_fd_smooth)
         self.sendback_queue.put(self.rtf)
+        self.sendback_queue.put(self.rms)
+        print(self.rms)
 
         # Finishing this run() function triggers any GUI listeners for the self.finished() flag
 
@@ -656,6 +660,14 @@ class AlgorithmIteration(QtCore.QThread):
         x_rtf = self.ref_in_snippet_fd_smooth[0]
         y_rtf = self.meas_in_snippet_fd_smooth[1] - self.ref_in_snippet_fd_smooth[1]
         self.rtf = [x_rtf, y_rtf]
+
+    def calculate_rtf_rms(self):
+        """
+        Calculates the value of the objective function.
+        A measure of the RTF curve's deviation from being flat.
+        RMS gives extra weight to outliers as these are extra sensitive to perceived sound.
+        """
+        self.rms = np.average(np.sum(np.square(self.rtf[1])))
 
 
 def _record(bfr_array, rec_array, stream_sync_event, start_event):

@@ -209,7 +209,7 @@ class Program(QWidget):
     def update_rtf_ax(self):
         # TODO
         self.rtf_ax.lines = list()
-        self.rtf_ax.plot(*self.rtf, color="black", label="RTF", linestyle="-", linewidth=2)
+        self.rtf_ax.plot(*self.rtf, color="black", label="RTF (RMS={0})".format(round(self.rms)), linestyle="-", linewidth=2)
         self.rtf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-", zorder=-1, linewidth=1)
         self.rtf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-", zorder=-1, linewidth=1)
         self.rtf_ax.legend(fontsize=FONTSIZE_LEGENDS)
@@ -287,6 +287,7 @@ class Program(QWidget):
         self.ref = self.rtf_queue.get()
         self.meas = self.rtf_queue.get()
         self.rtf = self.rtf_queue.get()
+        self.rms = self.rtf_queue.get()
         self.update_rtf_ax()
 
         # Reactivate buttons
