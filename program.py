@@ -12,7 +12,8 @@ from matplotlib.figure import Figure
 class Program(QWidget):
     def __init__(self):
         super().__init__()
-        self.title = "Autonomous Room Correction ({0}Hz)".format(RATE)
+        self.title = "Autonomous Room Correction  //  Rate: {0}Hz  //  Format: {1}  //  Buffer: {2}  //  " \
+                     "Range: {3}Hz - {4}Hz".format(RATE, str(NP_FORMAT).split('\'')[1], BUFFER, *F_LIMITS)
         self.setWindowTitle(self.title)
         self.setGeometry(200, 50, 1200, 1000)
 
@@ -76,7 +77,8 @@ class Program(QWidget):
 
         self.rndflt_btn = QPushButton("Randomise Filter")
         self.rndflt_btn.clicked.connect(self.random_filter_settings)
-        self.alg_btn = QPushButton("Start Algorithm")
+        # self.alg_btn = QPushButton("Start Algorithm")
+        self.alg_btn = QPushButton("Take RTF Measurement")
         self.alg_btn.clicked.connect(self.start_algorithm)
 
         self.bypass_cbox = QCheckBox("Bypass")
@@ -126,6 +128,7 @@ class Program(QWidget):
         self.filter_ax.grid(which="major", linestyle="-", alpha=0.4)
         self.filter_ax.grid(which="minor", linestyle="--", alpha=0.2)
         self.filter_ax.set_xscale("log")
+        self.filter_ax.set_ylim([-13, 13])
         self.update_filter_ax()
 
         # Current RTF
@@ -195,14 +198,20 @@ class Program(QWidget):
             label = d["settings"]
             self.filter_ax.semilogx(f, convert_to_dbfs(h), label=label, linestyle="--", zorder=-1, linewidth=1)
         # self.filter_ax.legend(fontsize=FONTSIZE_LEGENDS)
+
+        # Dynamically set axes limits
+        self.filter_ax.relim()
+        self.filter_ax.autoscale_view()
+        self.filter_ax.set_autoscale_on(True)
+
         self.canvas.draw()
 
     def update_rtf_ax(self):
         # TODO
         self.rtf_ax.lines = list()
         self.rtf_ax.plot(*self.rtf, color="black", label="RTF", linestyle="-", linewidth=2)
-        self.rtf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-")
-        self.rtf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-")
+        self.rtf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-", zorder=-1, linewidth=1)
+        self.rtf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-", zorder=-1, linewidth=1)
         self.rtf_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
     

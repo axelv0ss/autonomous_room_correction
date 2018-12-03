@@ -12,7 +12,7 @@ RATE = 44100
 # Need to be multiples of BUFFER
 # SNIPPET_LENGTH = 2048 * 216  # 10.03s of audio for 2048-buffer
 # BACKGROUND_LENGTH = 2048 * 1296  # 60.19s of audio for 2048-buffer
-SNIPPET_LENGTH = 2048 * 200
+SNIPPET_LENGTH = 2048 * 50
 BACKGROUND_LENGTH = 2048 * 200
 
 # How much time (in seconds) that the meas_in stream is ahead of ref_in stream.
@@ -20,7 +20,9 @@ BACKGROUND_LENGTH = 2048 * 200
 MEAS_REF_LATENCY = 0.155
 LATENCY_MEASUREMENT_LENGTH = 2048 * 100
 
-F_LIMITS = [20, 20480]
+# F_LIMITS = [20, 20480]
+# OCT_FRAC = 1 / 24
+F_LIMITS = [30, 18000]
 OCT_FRAC = 1 / 24
 
 EXPORT_WAV = True  # Export wav

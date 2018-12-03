@@ -461,7 +461,7 @@ class LatencyCalibration(QtCore.QThread):
         meas_thread.join()
 
         # Return
-        print("Calibration recordings finished!")
+        print("Latency measurement finished!")
         x = np.arange(0, LATENCY_MEASUREMENT_LENGTH / RATE, 1 / RATE, dtype=NP_FORMAT)
         self.sendback_queue.put([x, ref_in_rec])
         self.sendback_queue.put([x, meas_in_rec])
@@ -722,20 +722,28 @@ def smoothen_data_fd(x_in, y_in):
     Takes in arrays of FT spectrum [dB] and log-bins them using a spacing of OCT_FRAC.
     """
     # Provides evenly spaced bins on log axes. x_out provides the center of each bin.
-    bin_edges = F_LIMITS[0] * 2 ** np.arange(0, 10 + OCT_FRAC, step=OCT_FRAC)
+    # The last bin edge is unlikely to be equal to F_LIMITS[1], so take the last bin to encapsulate F_LIMITS[1].
+    last_step = np.log2(F_LIMITS[1] / F_LIMITS[0])
+    bin_edges = F_LIMITS[0] * 2 ** np.arange(0, last_step + OCT_FRAC, step=OCT_FRAC)
     x_out = np.sqrt(bin_edges[:-1] * (bin_edges[1:]))
+
+    # print(len(x_in))
 
     # Vectorised for efficiency
     indices = np.digitize(x_in, bin_edges)
+    # print(indices)
+    # print(len(x_in))
     unique_vals, i_start, count = np.unique(indices, return_counts=True, return_index=True)
     y_out = np.zeros(len(unique_vals))
 
     for i in range(len(unique_vals)):
         # Take the elements of the y_raw data corresponding to the x_raw values grouped by bin
         # Linear average since we are working in dB (log) scale
+        # print(x_in[i_start[i]:i_start[i] + count[i]])
         y_out[i] = np.average(y_in[i_start[i]:i_start[i] + count[i]])
 
     assert len(x_out) == len(y_out), "Empty bins were encountered in smoothing! Check resolution in frequency " \
-                                     "domain vs parameter OCT_FRAC.\nlen(x)={0}, len(y)={1}\nx={2}\ny={3}" \
-                                     .format(len(x_out), len(y_out), x_out, y_out)
+                                     "domain vs parameter OCT_FRAC.\nTry increasing the length of the recording or " \
+                                     "increase OCT_FRAC.\nlen(x)={0}, len(y)={1}\nbin_edges={2}\nx_in={3}" \
+                                     .format(len(x_out), len(y_out), bin_edges, x_in)
     return x_out, y_out
