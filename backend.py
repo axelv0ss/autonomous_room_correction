@@ -7,6 +7,20 @@ import queue
 import itertools
 
 
+class Flag(object):
+    """
+    A simple boolean flag object to pass between threads
+    """
+    def __init__(self, init_state):
+        self.state = init_state
+
+    def set_state(self, state):
+        self.state = state
+
+    def get_state(self):
+        return self.state
+
+
 class PeakFilter(object):
     def __init__(self, fc, gain, q):
         """
@@ -334,36 +348,18 @@ class BackgroundModel(QtCore.QThread):
         Function to calculate and append absolute value of Fourier Transform for each snippet to the list
         self.snippets_fd, where self.snippets_fd = [(x1, y1), (x2, y2), ... , (xn, yn)]
 
-        This function calculates the magnitude and performs normalisation operations to preserve magnitude between the
-        time and frequency domains.
+        The (complex) FFT is converted to magnitude [dBFS] using convert_to_dbfs().
 
-        The Fourier magnitudes are converted to decibels [dB] = 20 * log10(mag/ref), where ref = 1
+        The resulting arrays are: x [Hz] and y [dBFS].
         """
         print("Fourier transforming {0} snippets...".format(len(self.snippets_td)))
 
         # Transform all snippets
         for x_td, y_td in self.snippets_td:
-            # N is number of samples, dt is time-domain spacing between samples
-            N = len(y_td)
-
-            # Transform the data and obtain the frequency array
-            y_fd = np.fft.fft(y_td)
-            x_fd = np.fft.fftfreq(N, 1 / RATE)
-
-            # Mask the negative frequencies
-            mask = x_fd > 0
-            x_fd = x_fd[mask]
-            y_fd = y_fd[mask]
-
-            # Multiply by 2 to compensate for the loss of negative frequencies (half the spectrum)
-            # Divide by number of samples to compensate for the duration of the signal
-            # Take absolute value for magnitude
-            # These operations together ensure that magnitude is preserved and normalised
-            y_fd = 2 * np.abs(y_fd / N)
-
+            x_fd, y_fd = fourier_transform(y_td)
             self.snippets_fd.append((x_fd, y_fd))
 
-        # Convert to dB
+        # Take magnitude (abs) and convert to dB
         self.snippets_fd = [(x_fd, convert_to_dbfs(y_fd)) for x_fd, y_fd in self.snippets_fd]
 
     def mask_snippets_fd(self):
@@ -401,7 +397,7 @@ class BackgroundModel(QtCore.QThread):
         Smoothens the background model
         """
         print("Smoothening the background model with {0} octave bins...".format(round(OCT_FRAC, 4)))
-        x_model, y_model = self.smoothen_data_fd(*self.bg_model_fd)
+        x_model, y_model = smoothen_data_fd(*self.bg_model_fd)
         self.bg_model_fd = (x_model, y_model)
 
     def smoothen_snippets_fd(self):
@@ -413,32 +409,7 @@ class BackgroundModel(QtCore.QThread):
         print("Smoothening {0} snippets with {1} octave bins..."
               .format(len(self.snippets_fd), round(OCT_FRAC, 4)))
         for x, y in self.snippets_fd:
-            self.snippets_fd_smooth.append(self.smoothen_data_fd(x, y))
-
-    @staticmethod
-    def smoothen_data_fd(x_in, y_in):
-        """
-        Takes the linear average of the elements in each bin to obtain a smoother function.
-        Takes in arrays of FT spectrum and log-bins them using a spacing of OCT_FRAC.
-        """
-        # Provides evenly spaced bins on log axes. x_out provides the center of each bin.
-        bin_edges = F_LIMITS[0] * 2 ** np.arange(0, 10 + OCT_FRAC, step=OCT_FRAC)
-        x_out = np.sqrt(bin_edges[:-1] * (bin_edges[1:]))
-
-        # Vectorised for efficiency
-        indices = np.digitize(x_in, bin_edges)
-        unique_vals, i_start, count = np.unique(indices, return_counts=True, return_index=True)
-        y_out = np.zeros(len(unique_vals))
-
-        for i in range(len(unique_vals)):
-            # Take the elements of the y_raw data corresponding to the x_raw values grouped by bin
-            # Linear average since we are working in dB (log) scale
-            y_out[i] = np.average(y_in[i_start[i]:i_start[i] + count[i]])
-
-        assert len(x_out) == len(y_out), "Empty bins were encountered in smoothing! Check resolution in frequency " \
-                                         "domain vs parameter OCT_FRAC.\nlen(x)={0}, len(y)={1}\nx={2}\ny={3}" \
-                                         .format(len(x_out), len(y_out), x_out, y_out)
-        return x_out, y_out
+            self.snippets_fd_smooth.append(smoothen_data_fd(x, y))
 
 
 class LatencyCalibration(QtCore.QThread):
@@ -455,7 +426,7 @@ class LatencyCalibration(QtCore.QThread):
 
     def run(self):
         """
-        Records the two streams without any latency compensation and send the result back to the GUI for plotting.
+        Records the two streams and send the result back to the GUI for plotting.
         """
         print("\nTaking latency measurements:")
         print("Latency measurement: Recording {0}s from ref_in_buffer..."
@@ -499,30 +470,42 @@ class LatencyCalibration(QtCore.QThread):
 
 
 class AlgorithmIteration(QtCore.QThread):
-    def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event):
+    def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model):
         super().__init__()
         self.sendback_queue = sendback_queue
         self.ref_in_buffer = ref_in_buffer
         self.meas_in_buffer = meas_in_buffer
         self.main_sync_event = main_sync_event
         self.meas_sync_event = meas_sync_event
+        self.bg_model = bg_model
 
         self.ref_in_snippet_td = None
         self.meas_in_snippet_td = None
         self.ref_in_snippet_fd = None
         self.meas_in_snippet_fd = None
+        self.ref_in_snippet_fd_smooth = None
+        self.meas_in_snippet_fd_smooth = None
+        self.rtf = None
 
     def run(self):
-        print("\nRunning iteration:")
+        print("\nCalculating RTF:")
         # Record
         self.record_snippets()
-        self.hanning_snippets_td()
+
         # Process
+        self.hanning_snippets_td()
+        self.ft_snippets()
+        self.mask_snippets_fd()
+        self.smoothen_snippets_fd()
+        self.subtract_bg_from_meas()
+        self.normalise_snippets_fd()
+        self.calculate_rtf()
 
         # Return
-        print("Iteration finished!")
-        self.sendback_queue.put(self.ref_in_snippet_td)
-        self.sendback_queue.put(self.meas_in_snippet_td)
+        print("RTF calculated!")
+        self.sendback_queue.put(self.ref_in_snippet_fd_smooth)
+        self.sendback_queue.put(self.meas_in_snippet_fd_smooth)
+        self.sendback_queue.put(self.rtf)
 
         # Finishing this run() function triggers any GUI listeners for the self.finished() flag
 
@@ -593,70 +576,86 @@ class AlgorithmIteration(QtCore.QThread):
 
     def ft_snippets(self):
         """
-        Function to calculate and append absolute value of Fourier Transform for each snippet to the list
-        self.snippets_fd, where self.snippets_fd = [(x1, y1), (x2, y2), ... , (xn, yn)]
+        Function to calculate and append absolute value of Fourier Transform for the reference and measurement snippets.
 
-        This function calculates the magnitude and performs normalisation operations to preserve magnitude between the
-        time and frequency domains.
+        The (complex) FFT is converted to magnitude [dBFS] using convert_to_dbfs().
 
-        The Fourier magnitudes are converted to decibels [dB] = 20 * log10(mag/ref), where ref = 1
+        The resulting arrays are: x [Hz] and y [dBFS].
         """
         print("Fourier transforming ref_in and meas_in snippets...")
 
         # Transform both snippets
-        def transform(x_td, y_td):
-            # N is number of samples, dt is time-domain spacing between samples
-            N = len(y_td)
+        x_fd_ref, y_fd_ref = fourier_transform(self.ref_in_snippet_td[1])
+        x_fd_meas, y_fd_meas = fourier_transform(self.meas_in_snippet_td[1])
 
-            # Transform the data and obtain the frequency array
-            y_fd = np.fft.fft(y_td)
-            x_fd = np.fft.fftfreq(N, 1 / RATE)
-
-            # Mask the negative frequencies
-            mask = x_fd > 0
-            x_fd = x_fd[mask]
-            y_fd = y_fd[mask]
-
-            # Multiply by 2 to compensate for the loss of negative frequencies (half the spectrum)
-            # Divide by number of samples to compensate for the duration of the signal
-            # These operations together ensure that magnitude is preserved and normalised
-            y_fd = 2 * y_fd / N
-
-            return x_fd, y_fd
-
-        self.ref_in_snippet_fd = transform(*self.ref_in_snippet_td)
-        self.meas_in_snippet_fd = transform(*self.meas_in_snippet_td)
-
-        # Convert to dB and take magnitude
-        self.snippets_fd = [(x_fd, convert_to_dbfs(y_fd)) for x_fd, y_fd in self.snippets_fd]
+        # Take magnitude (abs) and convert to dB
+        self.ref_in_snippet_fd = [x_fd_ref, convert_to_dbfs(y_fd_ref)]
+        self.meas_in_snippet_fd = [x_fd_meas, convert_to_dbfs(y_fd_meas)]
 
     def mask_snippets_fd(self):
         """
         Masks the data to return only within the desired frequency range (in Hz)
         F_LIMITS = (lo_lim, hi_lim)
         """
-        print("Masking {0} frequency domain snippets between {1}Hz and {2}Hz..."
-              .format(len(self.snippets_fd), F_LIMITS[0], F_LIMITS[1]))
+        print("Masking ref_in and meas_in frequency domain snippets between {0}Hz and {1}Hz..."
+              .format(F_LIMITS[0], F_LIMITS[1]))
 
-        temp = list()
-        for x, y in self.snippets_fd:
-            mask = np.logical_and(F_LIMITS[0] < x, x < F_LIMITS[1])
-            temp.append((x[mask], y[mask]))
-        self.snippets_fd = temp
+        assert (self.ref_in_snippet_fd[0] == self.meas_in_snippet_fd[0]).all(), \
+            "Frequency steps (x-elements) in ref_in_snippet_fd and meas_in_snippet_fd are not the same, " \
+            "cannot continue."
 
+        x_fd, y_fd_ref = self.ref_in_snippet_fd
+        y_fd_meas = self.meas_in_snippet_fd[1]
 
-class Flag(object):
-    """
-    A simple boolean flag object to pass between threads
-    """
-    def __init__(self, init_state):
-        self.state = init_state
+        # Create and apply the mast
+        mask = np.logical_and(F_LIMITS[0] < x_fd, x_fd < F_LIMITS[1])
+        self.ref_in_snippet_fd = (x_fd[mask], y_fd_ref[mask])
+        self.meas_in_snippet_fd = (x_fd[mask], y_fd_meas[mask])
 
-    def set_state(self, state):
-        self.state = state
+    def smoothen_snippets_fd(self):
+        """
+        Smoothens the ref_in and meas_in snippets.
+        """
+        print("Smoothening ref_in and meas_in frequency domain snippets with {0} octave bins..."
+              .format(round(OCT_FRAC, 4)))
 
-    def get_state(self):
-        return self.state
+        x_fd, y_fd_ref = self.ref_in_snippet_fd
+        y_fd_meas = self.meas_in_snippet_fd[1]
+
+        # Save as lists to preserve mutability (required in subtract_bg_from_meas())
+        self.ref_in_snippet_fd_smooth = list(smoothen_data_fd(x_fd, y_fd_ref))
+        self.meas_in_snippet_fd_smooth = list(smoothen_data_fd(x_fd, y_fd_meas))
+
+    def subtract_bg_from_meas(self):
+        """
+        Subtracts the pre-generated background model from the meas_in snippet.
+        """
+        print("Subtracting the background model from the meas_in frequency domain snippet...")
+        assert (self.meas_in_snippet_fd_smooth[0] == self.bg_model[0]).all(), \
+            "Cannot subtract background from meas_in: Their frequency steps (x-values) are not identical!"
+
+        self.meas_in_snippet_fd_smooth[1] -= self.bg_model[1]
+
+    def normalise_snippets_fd(self):
+        """
+        Normalises the magnitude of the snippets such that they are both centered at 0 dBFS.
+        Calculates the average magnitude of the meas_in and ref_in snippets and compensated with how far it is from
+        0 dBFS.
+        """
+        print("Normalising ref_in and meas_in frequency domain snippets to 0 dBFS...")
+        avg_ref = np.average(self.ref_in_snippet_fd_smooth[1])
+        avg_meas = np.average(self.meas_in_snippet_fd_smooth[1])
+
+        self.ref_in_snippet_fd_smooth[1] -= avg_ref
+        self.meas_in_snippet_fd_smooth[1] -= avg_meas
+
+    def calculate_rtf(self):
+        """
+        Calculates the RTF by subtracting ref_in from meas_in.
+        """
+        x_rtf = self.ref_in_snippet_fd_smooth[0]
+        y_rtf = self.meas_in_snippet_fd_smooth[1] - self.ref_in_snippet_fd_smooth[1]
+        self.rtf = [x_rtf, y_rtf]
 
 
 def _record(bfr_array, rec_array, stream_sync_event, start_event):
@@ -681,10 +680,62 @@ def _record(bfr_array, rec_array, stream_sync_event, start_event):
         stream_sync_event.clear()  # Clears the flag and waits for the stream to set it again
 
 
+def fourier_transform(y_td):
+    """
+    This function calculates the magnitude and performs normalisation operations to preserve magnitude between the
+    time and frequency domains. Returns the positive frequency data only.
+
+    y_td is the time domain data.
+    Returns the (complex) transformed data in linear scale (not dBFS, use convert_to_dbfs() for that).
+    """
+    # N is number of samples, dt is time-domain spacing between samples
+    N = len(y_td)
+
+    # Transform the data and obtain the frequency array
+    y_fd = np.fft.fft(y_td)
+    x_fd = np.fft.fftfreq(N, 1 / RATE)
+
+    # Mask the negative frequencies
+    mask = x_fd > 0
+    x_fd = x_fd[mask]
+    y_fd = y_fd[mask]
+
+    # Multiply by 2 to compensate for the loss of negative frequencies (half the spectrum)
+    # Divide by number of samples to compensate for the duration of the signal
+    # These operations together ensure that magnitude is preserved and normalised
+    y_fd = 2 * y_fd / N
+
+    return x_fd, y_fd
+
+
 def convert_to_dbfs(y):
     """
-    Converts an input array y into dBFS units using
+    Converts a complex-valued input array y into dBFS units using
     [dB] = 20 * log10(mag/ref), where ref = 1
     """
     return 20 * np.log10(np.abs(y))
 
+
+def smoothen_data_fd(x_in, y_in):
+    """
+    Takes the linear average (since y-data is [dB]) of the elements in each bin to obtain a smoother function.
+    Takes in arrays of FT spectrum [dB] and log-bins them using a spacing of OCT_FRAC.
+    """
+    # Provides evenly spaced bins on log axes. x_out provides the center of each bin.
+    bin_edges = F_LIMITS[0] * 2 ** np.arange(0, 10 + OCT_FRAC, step=OCT_FRAC)
+    x_out = np.sqrt(bin_edges[:-1] * (bin_edges[1:]))
+
+    # Vectorised for efficiency
+    indices = np.digitize(x_in, bin_edges)
+    unique_vals, i_start, count = np.unique(indices, return_counts=True, return_index=True)
+    y_out = np.zeros(len(unique_vals))
+
+    for i in range(len(unique_vals)):
+        # Take the elements of the y_raw data corresponding to the x_raw values grouped by bin
+        # Linear average since we are working in dB (log) scale
+        y_out[i] = np.average(y_in[i_start[i]:i_start[i] + count[i]])
+
+    assert len(x_out) == len(y_out), "Empty bins were encountered in smoothing! Check resolution in frequency " \
+                                     "domain vs parameter OCT_FRAC.\nlen(x)={0}, len(y)={1}\nx={2}\ny={3}" \
+                                     .format(len(x_out), len(y_out), x_out, y_out)
+    return x_out, y_out

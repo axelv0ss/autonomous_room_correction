@@ -33,6 +33,7 @@ class Program(QWidget):
         self.main_stream_paused = Flag(False)
         self.main_sync_event = threading.Event()  # Acts as a clock for synchronised recording
         self.meas_sync_event = threading.Event()  # Acts as a clock for synchronised recording
+        self.bg_model = None
 
     def init_queues(self):
         self.bg_model_queue = Queue()
@@ -174,6 +175,12 @@ class Program(QWidget):
         self.latency_ax.plot(*self.latency_ref, color="C0", label="Reference In")
         self.latency_ax.plot(*self.latency_meas, color="C1", label="Measurement In")
         self.latency_ax.legend(fontsize=FONTSIZE_LEGENDS)
+
+        # Dynamically set axes limits
+        self.latency_ax.relim()
+        self.latency_ax.autoscale_view()
+        self.latency_ax.set_autoscale_on(True)
+
         self.canvas.draw()
 
     def update_filter_ax(self):
@@ -193,8 +200,10 @@ class Program(QWidget):
     def update_rtf_ax(self):
         # TODO
         self.rtf_ax.lines = list()
-        self.rtf_ax.plot(*self.ref)
-        self.rtf_ax.plot(*self.meas)
+        self.rtf_ax.plot(*self.rtf, color="black", label="RTF", linestyle="-", linewidth=2)
+        self.rtf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-")
+        self.rtf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-")
+        self.rtf_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
     
     def start_bg_model_measurement(self):
@@ -249,21 +258,26 @@ class Program(QWidget):
         """
         freqs = [50, 120, 300, 625, 1250, 2500, 5000, 10000, 20000]
         for i, fc in enumerate(freqs):
-            self.chain.set_filter_params(i, fc, np.random.randint(-20, 5), np.random.random() + 0.5)
+            self.chain.set_filter_params(i, fc, np.random.randint(-15, 10), np.random.random() * 2 + 0.5)
         self.update_filter_ax()
 
     def start_algorithm(self):
+        if self.bg_model is None:
+            print("\nCannot start algorithm: Background model not generated!")
+            return
+
         # Deactivate buttons
         self.toggle_buttons_state()
         # TODO Pass in start parameters here, like an initial population etc?
         self.algorithm_iteration = AlgorithmIteration(self.rtf_queue, self.ref_in_buffer, self.meas_in_buffer,
-                                                      self.main_sync_event, self.meas_sync_event)
+                                                      self.main_sync_event, self.meas_sync_event, self.bg_model)
         self.algorithm_iteration.start()
         self.algorithm_iteration.finished.connect(self.collect_algorithm)
 
     def collect_algorithm(self):
         self.ref = self.rtf_queue.get()
         self.meas = self.rtf_queue.get()
+        self.rtf = self.rtf_queue.get()
         self.update_rtf_ax()
 
         # Reactivate buttons

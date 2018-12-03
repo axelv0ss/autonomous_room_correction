@@ -12,7 +12,7 @@ RATE = 44100
 # Need to be multiples of BUFFER
 # SNIPPET_LENGTH = 2048 * 216  # 10.03s of audio for 2048-buffer
 # BACKGROUND_LENGTH = 2048 * 1296  # 60.19s of audio for 2048-buffer
-SNIPPET_LENGTH = 2048 * 50
+SNIPPET_LENGTH = 2048 * 200
 BACKGROUND_LENGTH = 2048 * 200
 
 # How much time (in seconds) that the meas_in stream is ahead of ref_in stream.
