@@ -20,7 +20,7 @@ class Program(QWidget):
         self.init_gui()
         self.init_shared_objects()
         self.init_queues()
-        self.init_filter_chain()
+        self.init_live_chain()
         self.init_plots()
         self.show()
         self.init_streams()
@@ -29,7 +29,7 @@ class Program(QWidget):
         self.ref_in_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
         self.meas_out_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
         self.meas_in_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
-        self.bypass_chain = Flag(False)
+        self.bypass_live_chain = Flag(False)
         self.shutting_down = Flag(False)
         self.main_stream_paused = Flag(False)
         self.main_sync_event = threading.Event()  # Acts as a clock for synchronised recording
@@ -40,9 +40,9 @@ class Program(QWidget):
         self.bg_model_queue = Queue()
         self.latency_queue = Queue()
         self.filter_queue = Queue()
-        self.rtf_queue = Queue()
+        self.stf_queue = Queue()
 
-    def init_filter_chain(self):
+    def init_live_chain(self):
         f1 = PeakFilter(fc=50, gain=0, q=1)
         f2 = PeakFilter(fc=120, gain=0, q=1)
         f3 = PeakFilter(fc=300, gain=0, q=1)
@@ -52,10 +52,10 @@ class Program(QWidget):
         f7 = PeakFilter(fc=5000, gain=0, q=1)
         f8 = PeakFilter(fc=10000, gain=0, q=1)
         f9 = PeakFilter(fc=20000, gain=0, q=1)
-        self.chain = FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9)
+        self.live_chain = FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9)
 
     def init_streams(self):
-        self.main_stream = MainStream(self.ref_in_buffer, self.meas_out_buffer, self.chain, self.bypass_chain,
+        self.main_stream = MainStream(self.ref_in_buffer, self.meas_out_buffer, self.live_chain, self.bypass_live_chain,
                                       self.main_stream_paused, self.shutting_down, self.main_sync_event)
         self.main_stream.start()
         time.sleep(0.5)  # Required to avoid SIGSEGV error
@@ -67,7 +67,7 @@ class Program(QWidget):
         self.canvas = FigureCanvas(self.figure)
         self.toolbar = NavigationToolbar(self.canvas, self)
 
-        (self.bg_model_ax, self.latency_ax), (self.filter_ax, self.rtf_ax) = self.figure.subplots(2, 2)
+        (self.bg_model_ax, self.latency_ax), (self.filter_ax, self.stf_ax) = self.figure.subplots(2, 2)
         self.figure.tight_layout()
 
         self.bg_btn = QPushButton("Take Background Measurement")
@@ -77,8 +77,7 @@ class Program(QWidget):
 
         self.rndflt_btn = QPushButton("Randomise Filter")
         self.rndflt_btn.clicked.connect(self.random_filter_settings)
-        # self.alg_btn = QPushButton("Start Algorithm")
-        self.alg_btn = QPushButton("Take RTF Measurement")
+        self.alg_btn = QPushButton("Start Algorithm")
         self.alg_btn.clicked.connect(self.start_algorithm)
 
         self.bypass_cbox = QCheckBox("Bypass")
@@ -131,15 +130,15 @@ class Program(QWidget):
         self.filter_ax.set_ylim([-13, 13])
         self.update_filter_ax()
 
-        # Current RTF
-        self.rtf_ax.set_title("Current RTF", fontsize=FONTSIZE_TITLES)
-        self.rtf_ax.set_ylabel("Magnitude [dBFS]", fontsize=FONTSIZE_LABELS)
-        self.rtf_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
-        self.rtf_ax.minorticks_on()
-        self.rtf_ax.tick_params(labelsize=FONTSIZE_TICKS)
-        self.rtf_ax.grid(which="major", linestyle="-", alpha=0.4)
-        self.rtf_ax.grid(which="minor", linestyle="--", alpha=0.2)
-        self.rtf_ax.set_xscale("log")
+        # Current STF
+        self.stf_ax.set_title("Current STF", fontsize=FONTSIZE_TITLES)
+        self.stf_ax.set_ylabel("Magnitude [dBFS]", fontsize=FONTSIZE_LABELS)
+        self.stf_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
+        self.stf_ax.minorticks_on()
+        self.stf_ax.tick_params(labelsize=FONTSIZE_TICKS)
+        self.stf_ax.grid(which="major", linestyle="-", alpha=0.4)
+        self.stf_ax.grid(which="minor", linestyle="--", alpha=0.2)
+        self.stf_ax.set_xscale("log")
 
         self.canvas.draw()
 
@@ -154,10 +153,10 @@ class Program(QWidget):
     def toggle_bypass(self):
         if self.bypass_cbox.isChecked():
             print("\nFilters bypassed!")
-            self.bypass_chain.set_state(True)
+            self.bypass_live_chain.set_state(True)
         else:
             print("\nFilters active!")
-            self.bypass_chain.set_state(False)
+            self.bypass_live_chain.set_state(False)
 
     def update_bg_model_ax(self):
         # Remove all existing lines
@@ -189,11 +188,11 @@ class Program(QWidget):
     def update_filter_ax(self):
         # Remove all existing lines
         self.filter_ax.lines = list()
-        # Plot chain
-        f, H = self.chain.get_chain_tf()
+        # Plot live_chain
+        f, H = self.live_chain.get_chain_tf()
         self.filter_ax.semilogx(f, convert_to_dbfs(H), label="Chain", linewidth=2)
         # Plot individual filters
-        for d in self.chain.get_all_filters_settings_tf():
+        for d in self.live_chain.get_all_filters_settings_tf():
             f, h = d["tf"]
             label = d["settings"]
             self.filter_ax.semilogx(f, convert_to_dbfs(h), label=label, linestyle="--", zorder=-1, linewidth=1)
@@ -206,13 +205,15 @@ class Program(QWidget):
 
         self.canvas.draw()
 
-    def update_rtf_ax(self):
+    def update_stf_ax(self):
         # TODO
-        self.rtf_ax.lines = list()
-        self.rtf_ax.plot(*self.rtf, color="black", label="RTF (RMS={0})".format(round(self.rms)), linestyle="-", linewidth=2)
-        self.rtf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-", zorder=-1, linewidth=1)
-        self.rtf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-", zorder=-1, linewidth=1)
-        self.rtf_ax.legend(fontsize=FONTSIZE_LEGENDS)
+        self.stf_ax.lines = list()
+        self.stf_ax.plot(*self.stf, color="black", label="Best STF (MS={0})".format(round(self.ms)), linestyle="-", linewidth=2, zorder=-1)
+        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF".format(round(self.ms)), linestyle="-",
+                         linewidth=2)
+        # self.stf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-", zorder=-1, linewidth=1)
+        # self.stf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-", zorder=-1, linewidth=1)
+        self.stf_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
     
     def start_bg_model_measurement(self):
@@ -267,28 +268,24 @@ class Program(QWidget):
         """
         freqs = [50, 120, 300, 625, 1250, 2500, 5000, 10000, 20000]
         for i, fc in enumerate(freqs):
-            self.chain.set_filter_params(i, fc, np.random.randint(-15, 10), np.random.random() * 2 + 0.5)
+            self.live_chain.set_filter_params(i, fc, np.random.randint(-15, 10), np.random.random() * 2 + 0.5)
         self.update_filter_ax()
 
     def start_algorithm(self):
-        if self.bg_model is None:
-            print("\nCannot start algorithm: Background model not generated!")
-            return
-
         # Deactivate buttons
         self.toggle_buttons_state()
         # TODO Pass in start parameters here, like an initial population etc?
-        self.algorithm_iteration = AlgorithmIteration(self.rtf_queue, self.ref_in_buffer, self.meas_in_buffer,
-                                                      self.main_sync_event, self.meas_sync_event, self.bg_model)
-        self.algorithm_iteration.start()
-        self.algorithm_iteration.finished.connect(self.collect_algorithm)
+        
+        self.algorithm = Algorithm(self.stf_queue, self.ref_in_buffer, self.meas_in_buffer, self.main_sync_event, 
+                                   self.meas_sync_event, self.bg_model, self.live_chain)
+        self.algorithm.start()
+        self.algorithm.finished.connect(self.collect_algorithm)
 
     def collect_algorithm(self):
-        self.ref = self.rtf_queue.get()
-        self.meas = self.rtf_queue.get()
-        self.rtf = self.rtf_queue.get()
-        self.rms = self.rtf_queue.get()
-        self.update_rtf_ax()
+        self.initial_stf = self.stf_queue.get()
+        self.stf = self.stf_queue.get()
+        self.ms = self.stf_queue.get()
+        self.update_stf_ax()
 
         # Reactivate buttons
         self.toggle_buttons_state()

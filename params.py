@@ -22,16 +22,16 @@ BACKGROUND_LENGTH = 2048 * 216  # 60.19s of audio for 2048-buffer
 MEAS_REF_LATENCY = 0.085
 LATENCY_MEASUREMENT_LENGTH = 212992
 
+EXPORT_WAV = True  # Export wave files
+
 F_LIMITS = [30, 20000]
 OCT_FRAC = 1 / 24
 
-EXPORT_WAV = True  # Export wave files
-
 # For evolutionary algorithm
 POP_SIZE = 6
-NUM_FILTERS = 3
+NUM_FILTERS = 6
 GAIN_LIMITS = [-10, 0]
-Q_LIMITS = [0.5, 2]
+Q_LIMITS = [0.5, 4]
 
 
 # For plots in interface

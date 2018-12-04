@@ -7,6 +7,22 @@ import queue
 import itertools
 
 
+class QuietMeasurementException(Exception):
+    """
+    Raised when the measurement is quieter than the background in any part of the frequency spectrum.
+    Technically this shows as NaNs present in the array of measurement values.
+    Used to postpone the algorithm until a sufficiently loud measurement is obtained.
+    """
+    pass
+
+
+class NoBackgroundException(Exception):
+    """
+    Raised when algorithm is run without first taking a background measurement.
+    """
+    pass
+
+
 class Flag(object):
     """
     A simple boolean flag object to pass between threads
@@ -101,6 +117,18 @@ class FilterChain(object):
         """
         self.filters[i].set_params(fc, gain, q)
 
+    def get_filters(self):
+        return self.filters[:]
+
+    def copy_chain_state(self, chain):
+        """
+        Takes in another chain objects and copies its settings
+        """
+        self.filters = chain.get_filters()
+
+        # Calculate initial conditions
+        # self.zi = [signal.lfilter_zi(*filt.get_b_a()) for filt in self.filters]
+
     def get_num_filters(self):
         return len(self.filters)
 
@@ -134,6 +162,79 @@ class FilterChain(object):
         for filt in self.filters:
             out.append({"settings": filt.get_settings(), "tf": filt.get_tf()})
         return out
+
+
+class Population(object):
+    """
+    Population for evolutionary algorithm.
+    Initialisation -> Evaluation -> Terminate? -> Selection -> Variation
+    """
+
+    def __init__(self, initial_ms):
+        """
+        initial_ms: Initial ms value without any filters applied to use as a
+                     termination criterion in the first iteration.
+
+        Uses global parameters:
+        POP_SIZE      The size of the population.
+        NUM_FILTERS   The number of PeakFilter objects in each chain (population member).
+        F_LIMITS      Tuples of the form (lo, hi). Indicates the limits of the
+        GAIN_LIMITS   corresponding parameter to apply.
+        Q_LIMITS
+        """
+        self.population = list()  # Will contain FilterChain objects
+        self.avg_ms_list = [initial_ms]
+
+        self.generate_initial_population()
+
+    def generate_initial_population(self):
+        """
+        Populate self.population with randomly generated members.
+        """
+        for i in range(POP_SIZE):
+            filters = []
+            for j in range(NUM_FILTERS):
+                filters.append(PeakFilter(*self.random_filter_params()))
+            self.population.append(FilterChain(*filters))
+
+    @staticmethod
+    def random_filter_params():
+        """
+        Generates a random set of filter parameters: fc, gain, q
+        Respects the limits set in params.py
+        """
+        assert F_LIMITS[0] > 0, "The lower frequency limit must be positive"
+
+        # For random frequency (log distribution between f_lo, f_hi)
+        alpha = np.random.random() * np.log2(F_LIMITS[1] / F_LIMITS[0])
+        fc = F_LIMITS[0] * 2 ** alpha
+
+        # Linear distribution
+        gain = np.random.random() * (GAIN_LIMITS[1] - GAIN_LIMITS[0]) + GAIN_LIMITS[0]
+
+        # Linear distribution
+        q = np.random.random() * (Q_LIMITS[1] - Q_LIMITS[0]) + Q_LIMITS[0]
+
+        return fc, gain, q
+
+    def get_population(self):
+        return self.population[:]
+
+    def calculate_new_population(self, ms_list):
+        """
+        Takes the evaluated MS values associated with each member
+
+        Termination if performing worse than the last element in self.avg_ms_list
+        Generate the same number of new solutions as the number of solutions terminated
+        Pick random filters from the top performers
+        """
+        pass
+
+    def calculate_prev_avg_ms(self):
+        """
+        Append to self.avg_ms_list. Gives a measure of how the correction is performing over time.
+        """
+        pass
 
 
 class MainStream(QtCore.QThread):
@@ -470,8 +571,11 @@ class LatencyCalibration(QtCore.QThread):
         # Finishing this run() function triggers any GUI listeners for the self.finished() flag
 
 
-class AlgorithmIteration(QtCore.QThread):
-    def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model):
+class Algorithm(QtCore.QThread):
+    """
+    The evolutionary algorithm that runs in the background and continuously sends back values for plotting.
+    """
+    def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model, live_chain):
         super().__init__()
         self.sendback_queue = sendback_queue
         self.ref_in_buffer = ref_in_buffer
@@ -479,40 +583,83 @@ class AlgorithmIteration(QtCore.QThread):
         self.main_sync_event = main_sync_event
         self.meas_sync_event = meas_sync_event
         self.bg_model = bg_model
+        self.live_chain = live_chain
 
-        self.ref_in_snippet_td = None
-        self.meas_in_snippet_td = None
-        self.ref_in_snippet_fd = None
-        self.meas_in_snippet_fd = None
-        self.ref_in_snippet_fd_smooth = None
-        self.meas_in_snippet_fd_smooth = None
-        self.rtf = None
-        self.rms = None
+        self.population = None
+        self.stf = None
+        self.ms = None
 
     def run(self):
-        print("\nCalculating RTF:")
-        # Record
-        self.record_snippets()
+        stf, ms = self.measure_stf_ms()  # Initial measurement of STF
+        self.population = Population(ms)  # Initialise the population
 
-        # Process
-        self.hanning_snippets_td()
-        self.ft_snippets()
-        self.mask_snippets_fd()
-        self.smoothen_snippets_fd()
-        self.subtract_bg_from_meas()
-        self.normalise_snippets_fd()
-        self.calculate_rtf()
-        self.calculate_rtf_rms()
+        initial_stf = stf
 
-        # Return
-        print("RTF calculated!")
-        self.sendback_queue.put(self.ref_in_snippet_fd_smooth)
-        self.sendback_queue.put(self.meas_in_snippet_fd_smooth)
-        self.sendback_queue.put(self.rtf)
-        self.sendback_queue.put(self.rms)
-        print(self.rms)
+        best_chain = self.live_chain
+        best_ms = ms
+        best_stf = stf
+        for i, chain in enumerate(self.population.get_population()):
+            self.live_chain.copy_chain_state(chain)
+            print("\nApplying filter {0}/{1}\n{2}"
+                  .format(i+1, len(self.population.get_population()), chain.get_chain_settings()))
+            stf, ms = self.measure_stf_ms()
+            if ms < best_ms:
+                best_chain = chain
+                best_ms = ms
+                best_stf = stf
+
+        print("Best: {0}".format(best_ms))
+        self.live_chain.copy_chain_state(best_chain)
+
+        # self.sendback_queue.put(self.ref_in_snippet_fd_smooth)
+        # self.sendback_queue.put(self.meas_in_snippet_fd_smooth)
+
+        self.sendback_queue.put(initial_stf)
+        self.sendback_queue.put(best_stf)
+        self.sendback_queue.put(best_ms)
 
         # Finishing this run() function triggers any GUI listeners for the self.finished() flag
+
+    def measure_stf_ms(self):
+        """
+        Measures the STF (System Transfer Function) and its associated Mean-Squared value.
+        Returns: stf (x, y arrays), ms (float)
+        """
+        print("\nMeasuring STF:")
+
+        # Keep iterating until a sufficiently loud measurement is obtained
+        while True:
+            # Record
+            ref_in_snippet_td, meas_in_snippet_td = self.record_snippets()
+
+            # Calculate
+            ref_in_snippet_td, meas_in_snippet_td = self.hanning_snippets_td(ref_in_snippet_td, meas_in_snippet_td)
+            ref_in_snippet_fd, meas_in_snippet_fd = self.ft_snippets(ref_in_snippet_td, meas_in_snippet_td)
+            ref_in_snippet_fd, meas_in_snippet_fd = self.mask_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd)
+            ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth = self.smoothen_snippets_fd(ref_in_snippet_fd,
+                                                                                            meas_in_snippet_fd)
+            try:
+                meas_in_snippet_fd_smooth = self.subtract_bg_from_meas(self.bg_model, meas_in_snippet_fd_smooth)
+            except QuietMeasurementException:
+                # If nans, iterate through while loop once again
+                print("\nMeasurement too quiet, measuring STF again...")
+                pass
+            except NoBackgroundException:
+                print("No background model generated, continuing...")
+                break
+            else:
+                # If no nans, exit the while loop
+                break
+
+        ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth = self.normalise_snippets_fd(ref_in_snippet_fd_smooth,
+                                                                                         meas_in_snippet_fd_smooth)
+        stf = self.calculate_stf(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth)
+        ms = self.calculate_ms(stf)
+
+        # Return
+        print("STF and MS calculated!")
+
+        return stf, ms
 
     def record_snippets(self):
         """
@@ -563,10 +710,10 @@ class AlgorithmIteration(QtCore.QThread):
               .format(round(SNIPPET_LENGTH / RATE, 2), file_names[1], EXPORT_WAV))
 
         x = np.arange(0, SNIPPET_LENGTH/RATE, 1 / RATE, dtype=NP_FORMAT)
-        self.ref_in_snippet_td = [x, ref_in_rec]
-        self.meas_in_snippet_td = [x, meas_in_rec]
+        return [x, ref_in_rec], [x, meas_in_rec]
 
-    def hanning_snippets_td(self):
+    @staticmethod
+    def hanning_snippets_td(ref_in_snippet_td, meas_in_snippet_td):
         """
         Applies a Hanning envelope to the reference and measurement snippets.
         Used to fulfill FFT requirement that time-domain signal needs to be periodic (zeros at beginning and end).
@@ -575,11 +722,13 @@ class AlgorithmIteration(QtCore.QThread):
               http://www.azimadli.com/vibman/thehanningwindow.htm
         """
         print("Applying Hanning window to ref_in and meas_in time domain snippets...")
-        window = np.hanning(len(self.ref_in_snippet_td[1]))
-        self.ref_in_snippet_td[1] = 2 * window * self.ref_in_snippet_td[1]
-        self.meas_in_snippet_td[1] = 2 * window * self.meas_in_snippet_td[1]
+        window = np.hanning(len(ref_in_snippet_td[1]))
+        ref_in_snippet_td[1] = 2 * window * ref_in_snippet_td[1]
+        meas_in_snippet_td[1] = 2 * window * meas_in_snippet_td[1]
+        return ref_in_snippet_td, meas_in_snippet_td
 
-    def ft_snippets(self):
+    @staticmethod
+    def ft_snippets(ref_in_snippet_td, meas_in_snippet_td):
         """
         Function to calculate and append absolute value of Fourier Transform for the reference and measurement snippets.
 
@@ -590,14 +739,17 @@ class AlgorithmIteration(QtCore.QThread):
         print("Fourier transforming ref_in and meas_in snippets...")
 
         # Transform both snippets
-        x_fd_ref, y_fd_ref = fourier_transform(self.ref_in_snippet_td[1])
-        x_fd_meas, y_fd_meas = fourier_transform(self.meas_in_snippet_td[1])
+        x_fd_ref, y_fd_ref = fourier_transform(ref_in_snippet_td[1])
+        x_fd_meas, y_fd_meas = fourier_transform(meas_in_snippet_td[1])
 
         # Take magnitude (abs) and convert to dB
-        self.ref_in_snippet_fd = [x_fd_ref, convert_to_dbfs(y_fd_ref)]
-        self.meas_in_snippet_fd = [x_fd_meas, convert_to_dbfs(y_fd_meas)]
+        ref_in_snippet_fd = [x_fd_ref, convert_to_dbfs(y_fd_ref)]
+        meas_in_snippet_fd = [x_fd_meas, convert_to_dbfs(y_fd_meas)]
 
-    def mask_snippets_fd(self):
+        return ref_in_snippet_fd, meas_in_snippet_fd
+
+    @staticmethod
+    def mask_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd):
         """
         Masks the data to return only within the desired frequency range (in Hz)
         F_LIMITS = (lo_lim, hi_lim)
@@ -605,78 +757,101 @@ class AlgorithmIteration(QtCore.QThread):
         print("Masking ref_in and meas_in frequency domain snippets between {0}Hz and {1}Hz..."
               .format(F_LIMITS[0], F_LIMITS[1]))
 
-        assert (self.ref_in_snippet_fd[0] == self.meas_in_snippet_fd[0]).all(), \
+        assert (ref_in_snippet_fd[0] == meas_in_snippet_fd[0]).all(), \
             "Frequency steps (x-elements) in ref_in_snippet_fd and meas_in_snippet_fd are not the same, " \
             "cannot continue."
 
-        x_fd, y_fd_ref = self.ref_in_snippet_fd
-        y_fd_meas = self.meas_in_snippet_fd[1]
+        x_fd, y_fd_ref = ref_in_snippet_fd
+        y_fd_meas = meas_in_snippet_fd[1]
 
         # Create and apply the mast
         mask = np.logical_and(F_LIMITS[0] < x_fd, x_fd < F_LIMITS[1])
-        self.ref_in_snippet_fd = (x_fd[mask], y_fd_ref[mask])
-        self.meas_in_snippet_fd = (x_fd[mask], y_fd_meas[mask])
+        ref_in_snippet_fd = (x_fd[mask], y_fd_ref[mask])
+        meas_in_snippet_fd = (x_fd[mask], y_fd_meas[mask])
 
-    def smoothen_snippets_fd(self):
+        return ref_in_snippet_fd, meas_in_snippet_fd
+
+    @staticmethod
+    def smoothen_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd):
         """
         Smoothens the ref_in and meas_in snippets.
         """
         print("Smoothening ref_in and meas_in frequency domain snippets with {0} octave bins..."
               .format(round(OCT_FRAC, 4)))
 
-        x_fd, y_fd_ref = self.ref_in_snippet_fd
-        y_fd_meas = self.meas_in_snippet_fd[1]
+        x_fd, y_fd_ref = ref_in_snippet_fd
+        y_fd_meas = meas_in_snippet_fd[1]
 
         # Save as lists to preserve mutability (required in subtract_bg_from_meas())
-        self.ref_in_snippet_fd_smooth = list(smoothen_data_fd(x_fd, y_fd_ref))
-        self.meas_in_snippet_fd_smooth = list(smoothen_data_fd(x_fd, y_fd_meas))
+        ref_in_snippet_fd_smooth = list(smoothen_data_fd(x_fd, y_fd_ref))
+        meas_in_snippet_fd_smooth = list(smoothen_data_fd(x_fd, y_fd_meas))
 
-    def subtract_bg_from_meas(self):
+        return ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth
+
+    @staticmethod
+    def subtract_bg_from_meas(bg_model, meas_in_snippet_fd_smooth):
         """
         Subtracts the pre-generated background model from the meas_in snippet.
-        Uses the fancy formula we derived (see lab book)
+        Uses the fancy formula we derived (see lab book page 36)
         """
+        if bg_model is None:
+            raise NoBackgroundException
+        
         print("Subtracting the background model from the meas_in frequency domain snippet...")
-        assert (self.meas_in_snippet_fd_smooth[0] == self.bg_model[0]).all(), \
+        assert (meas_in_snippet_fd_smooth[0] == bg_model[0]).all(), \
             "Cannot subtract background from meas_in: Their frequency steps (x-values) are not identical!"
+        
+        y_fd_bg = bg_model[1]
+        x_fd_meas, y_fd_meas = meas_in_snippet_fd_smooth
 
-        y_fd_bg = self.bg_model[1]
-        x_fd_meas, y_fd_meas = self.meas_in_snippet_fd_smooth
+        # If background is louder than measurement, raise exception
+        if (y_fd_meas - y_fd_bg <= 0).any():
+            raise QuietMeasurementException
 
         y_fd_meas = 20 * np.log10(10 ** (y_fd_meas/20) - 10 ** (y_fd_bg/20))
 
-        self.meas_in_snippet_fd_smooth = [x_fd_meas, y_fd_meas]
+        meas_in_snippet_fd_smooth = [x_fd_meas, y_fd_meas]
 
-    def normalise_snippets_fd(self):
+        return meas_in_snippet_fd_smooth
+
+    @staticmethod
+    def normalise_snippets_fd(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth):
         """
         Normalises the magnitude of the snippets such that they are both centered at 0 dBFS.
         Calculates the average magnitude of the meas_in and ref_in snippets and compensated with how far it is from
         0 dBFS.
         """
         print("Normalising ref_in and meas_in frequency domain snippets to 0 dBFS...")
-        avg_ref = np.average(self.ref_in_snippet_fd_smooth[1])
-        avg_meas = np.average(self.meas_in_snippet_fd_smooth[1])
+        avg_ref = np.average(ref_in_snippet_fd_smooth[1])
+        avg_meas = np.average(meas_in_snippet_fd_smooth[1])
 
-        self.ref_in_snippet_fd_smooth[1] -= avg_ref
-        self.meas_in_snippet_fd_smooth[1] -= avg_meas
+        ref_in_snippet_fd_smooth[1] -= avg_ref
+        meas_in_snippet_fd_smooth[1] -= avg_meas
 
-    def calculate_rtf(self):
-        """
-        Calculates the RTF by subtracting ref_in from meas_in.
-        """
-        print("\nCalculating RTF...")
-        x_rtf = self.ref_in_snippet_fd_smooth[0]
-        y_rtf = self.meas_in_snippet_fd_smooth[1] - self.ref_in_snippet_fd_smooth[1]
-        self.rtf = [x_rtf, y_rtf]
+        return ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth
 
-    def calculate_rtf_rms(self):
+    @staticmethod
+    def calculate_stf(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth):
         """
-        Calculates the value of the objective function.
-        A measure of the RTF curve's deviation from being flat.
-        RMS gives extra weight to outliers as these are extra sensitive to perceived sound.
+        Calculates the STF by subtracting ref_in from meas_in.
         """
-        self.rms = np.average(np.sum(np.square(self.rtf[1])))
-        print("\nCalculated RMS: {0}".format(self.rms))
+        print("Calculating STF...")
+        x_stf = ref_in_snippet_fd_smooth[0]
+        y_stf = meas_in_snippet_fd_smooth[1] - ref_in_snippet_fd_smooth[1]
+        stf = [x_stf, y_stf]
+
+        return stf
+
+    @staticmethod
+    def calculate_ms(stf):
+        """
+        Calculates the value of the objective function: Mean-Squared.
+        A measure of the STF curve's deviation from being flat.
+        MS gives extra weight to outliers as these are extra sensitive to perceived sound.
+        """
+        ms = np.average(np.sum(np.square(stf[1])))
+        print("Calculated RMS: {0}".format(ms))
+        return ms
 
 
 def _record(bfr_array, rec_array, stream_sync_event, start_event):

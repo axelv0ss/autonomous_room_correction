@@ -2,6 +2,7 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="c17e5768-846b-4ca4-acdb-cf543f283607" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/params.py" beforeDir="false" afterPath="$PROJECT_DIR$/params.py" afterDir="false" />
@@ -17,11 +18,11 @@
     <session id="-325813365">
       <usages-collector id="statistics.lifecycle.project">
         <counts>
-          <entry key="project.closed" value="4" />
+          <entry key="project.closed" value="5" />
           <entry key="project.open.time.2" value="1" />
-          <entry key="project.open.time.3" value="2" />
-          <entry key="project.open.time.4" value="1" />
-          <entry key="project.opened" value="4" />
+          <entry key="project.open.time.3" value="3" />
+          <entry key="project.open.time.4" value="2" />
+          <entry key="project.opened" value="6" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.extensions.open">
@@ -40,14 +41,14 @@
       <usages-collector id="statistics.file.extensions.edit">
         <counts>
           <entry key="dummy" value="7" />
-          <entry key="py" value="13518" />
+          <entry key="py" value="17123" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.types.edit">
         <counts>
           <entry key="PLAIN_TEXT" value="7" />
-          <entry key="Python" value="11027" />
-          <entry key="Scratch" value="2491" />
+          <entry key="Python" value="13826" />
+          <entry key="Scratch" value="3297" />
         </counts>
       </usages-collector>
     </session>
@@ -58,7 +59,7 @@
         <entry file="file://$PROJECT_DIR$/main.py">
           <provider selected="true" editor-type-id="text-editor">
             <state relative-caret-position="105">
-              <caret line="9" lean-forward="true" selection-start-line="9" selection-end-line="9" />
+              <caret line="9" selection-start-line="9" selection-end-line="9" />
             </state>
           </provider>
         </entry>
@@ -66,29 +67,20 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/program.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="336">
-              <caret line="20" column="34" lean-forward="true" selection-start-line="20" selection-start-column="34" selection-end-line="20" selection-end-column="34" />
+            <state relative-caret-position="1980">
+              <caret line="132" column="21" selection-start-line="132" selection-start-column="21" selection-end-line="132" selection-end-column="21" />
               <folding>
                 <element signature="e#0#21#0" expanded="true" />
-                <marker date="1543865632446" expanded="true" signature="990:1534" ph="..." />
-                <marker date="1543865632446" expanded="true" signature="9509:9518" ph="..." />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="false">
+      <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/backend.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="237">
-              <caret line="195" column="42" lean-forward="true" selection-start-line="195" selection-start-column="42" selection-end-line="195" selection-end-column="42" />
-              <folding>
-                <element signature="e#156#404#0" />
-                <element signature="e#437#2034#0" />
-                <element signature="e#2068#4081#0" />
-                <marker date="1543868117359" expanded="true" signature="3041:3047" ph="..." />
-                <marker date="1543868117359" expanded="true" signature="3364:3651" ph="..." />
-              </folding>
+            <state relative-caret-position="335">
+              <caret line="806" column="67" lean-forward="true" selection-start-line="806" selection-start-column="67" selection-end-line="806" selection-end-column="67" />
             </state>
           </provider>
         </entry>
@@ -96,21 +88,19 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/params.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="435">
-              <caret line="33" column="19" lean-forward="true" selection-start-line="33" selection-start-column="19" selection-end-line="33" selection-end-column="19" />
+            <state relative-caret-position="285">
+              <caret line="33" column="19" selection-start-line="33" selection-start-column="19" selection-end-line="33" selection-end-column="19" />
             </state>
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$APPLICATION_CONFIG_DIR$/scratches/scratch.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="779">
-              <caret line="41" column="26" selection-start-line="41" selection-start-column="26" selection-end-line="41" selection-end-column="26" />
+            <state relative-caret-position="270">
+              <caret line="18" column="22" lean-forward="true" selection-start-line="18" selection-start-column="22" selection-end-line="18" selection-end-column="22" />
               <folding>
                 <element signature="e#0#18#0" expanded="true" />
-                <marker date="1543861210072" expanded="true" signature="400:405" ph="..." />
-                <marker date="1543861210072" expanded="true" signature="1260:1300" ph="..." />
               </folding>
             </state>
           </provider>
@@ -139,7 +129,23 @@
       <find>bg_model</find>
       <find>self.rtf</find>
       <find>time.sleep</find>
+      <find>rtf</find>
+      <find>rms</find>
+      <find>RMS</find>
+      <find>RTF</find>
+      <find>print</find>
+      <find>chain</find>
+      <find>init_filter_live_chain</find>
+      <find>get_live_chain_tf</find>
+      <find>bypass</find>
+      <find>update_stf_ax</find>
     </findStrings>
+    <replaceStrings>
+      <replace>live_chain</replace>
+      <replace>init_live_chain</replace>
+      <replace>get_chain_tf</replace>
+      <replace>MS</replace>
+    </replaceStrings>
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -151,15 +157,15 @@
         <option value="$PROJECT_DIR$/smoothening_debug.py" />
         <option value="$PROJECT_DIR$/main.py" />
         <option value="$PROJECT_DIR$/params.py" />
-        <option value="$APPLICATION_CONFIG_DIR$/scratches/scratch.py" />
         <option value="$PROJECT_DIR$/program.py" />
+        <option value="$APPLICATION_CONFIG_DIR$/scratches/scratch.py" />
         <option value="$PROJECT_DIR$/backend.py" />
       </list>
     </option>
   </component>
   <component name="ProjectFrameBounds">
-    <option name="x" value="455" />
-    <option name="y" value="66" />
+    <option name="x" value="64" />
+    <option name="y" value="23" />
     <option name="width" value="1510" />
     <option name="height" value="1111" />
   </component>
@@ -169,7 +175,6 @@
       <foldersAlwaysOnTop value="true" />
     </navigator>
     <panes>
-      <pane id="Scope" />
       <pane id="ProjectPane">
         <subPane>
           <expand>
@@ -190,6 +195,7 @@
           <select />
         </subPane>
       </pane>
+      <pane id="Scope" />
     </panes>
   </component>
   <component name="PropertiesComponent">
@@ -215,7 +221,7 @@
       </list>
     </option>
   </component>
-  <component name="RunManager" selected="Python.main">
+  <component name="RunManager" selected="Python.scratch">
     <configuration name="backend" type="PythonConfigurationType" factoryName="Python" temporary="true">
       <module name="alpha_pyqt" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -308,9 +314,9 @@
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Python.scratch" />
         <item itemvalue="Python.main" />
         <item itemvalue="Python.backend" />
-        <item itemvalue="Python.scratch" />
         <item itemvalue="Python.smoothening_debug" />
       </list>
     </recent_temporary>
@@ -338,15 +344,15 @@
     </todo-panel>
   </component>
   <component name="ToolWindowManager">
-    <frame x="455" y="66" width="1510" height="1111" extended-state="0" />
+    <frame x="64" y="23" width="1510" height="1111" extended-state="0" />
     <editor active="true" />
     <layout>
-      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.14372061" />
+      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.14304903" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
       <window_info id="Favorites" order="2" side_tool="true" />
       <window_info anchor="bottom" id="Message" order="0" />
       <window_info anchor="bottom" id="Find" order="1" />
-      <window_info anchor="bottom" id="Run" order="2" weight="0.32973504" />
+      <window_info active="true" anchor="bottom" id="Run" order="2" visible="true" weight="0.3797841" />
       <window_info anchor="bottom" id="Debug" order="3" weight="0.4" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
@@ -365,13 +371,7 @@
   </component>
   <component name="editorHistoryManager">
     <entry file="file://$PROJECT_DIR$/smoothening_debug.py" />
-    <entry file="file://$PROJECT_DIR$/pyqt_mpl_example.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="750">
-          <caret line="50" lean-forward="true" selection-start-line="50" selection-end-line="50" />
-        </state>
-      </provider>
-    </entry>
+    <entry file="file://$PROJECT_DIR$/pyqt_mpl_example.py" />
     <entry file="file://$PROJECT_DIR$/.gitignore">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="30">
@@ -379,55 +379,44 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/program.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="336">
-          <caret line="20" column="34" lean-forward="true" selection-start-line="20" selection-start-column="34" selection-end-line="20" selection-end-column="34" />
-          <folding>
-            <element signature="e#0#21#0" expanded="true" />
-            <marker date="1543865632446" expanded="true" signature="990:1534" ph="..." />
-            <marker date="1543865632446" expanded="true" signature="9509:9518" ph="..." />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/main.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="105">
-          <caret line="9" lean-forward="true" selection-start-line="9" selection-end-line="9" />
+          <caret line="9" selection-start-line="9" selection-end-line="9" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/params.py">
+    <entry file="file://$PROJECT_DIR$/program.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="435">
-          <caret line="33" column="19" lean-forward="true" selection-start-line="33" selection-start-column="19" selection-end-line="33" selection-end-column="19" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/backend.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="237">
-          <caret line="195" column="42" lean-forward="true" selection-start-line="195" selection-start-column="42" selection-end-line="195" selection-end-column="42" />
+        <state relative-caret-position="1980">
+          <caret line="132" column="21" selection-start-line="132" selection-start-column="21" selection-end-line="132" selection-end-column="21" />
           <folding>
-            <element signature="e#156#404#0" />
-            <element signature="e#437#2034#0" />
-            <element signature="e#2068#4081#0" />
-            <marker date="1543868117359" expanded="true" signature="3041:3047" ph="..." />
-            <marker date="1543868117359" expanded="true" signature="3364:3651" ph="..." />
+            <element signature="e#0#21#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
     <entry file="file://$APPLICATION_CONFIG_DIR$/scratches/scratch.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="779">
-          <caret line="41" column="26" selection-start-line="41" selection-start-column="26" selection-end-line="41" selection-end-column="26" />
+        <state relative-caret-position="270">
+          <caret line="18" column="22" lean-forward="true" selection-start-line="18" selection-start-column="22" selection-end-line="18" selection-end-column="22" />
           <folding>
             <element signature="e#0#18#0" expanded="true" />
-            <marker date="1543861210072" expanded="true" signature="400:405" ph="..." />
-            <marker date="1543861210072" expanded="true" signature="1260:1300" ph="..." />
           </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/params.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="285">
+          <caret line="33" column="19" selection-start-line="33" selection-start-column="19" selection-end-line="33" selection-end-column="19" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/backend.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="335">
+          <caret line="806" column="67" lean-forward="true" selection-start-line="806" selection-start-column="67" selection-end-line="806" selection-end-column="67" />
         </state>
       </provider>
     </entry>
