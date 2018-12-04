@@ -220,7 +220,7 @@ class Program(QWidget):
         self.toggle_buttons_state()
         # Pause the main stream
         self.main_stream_paused.set_state(True)
-        time.sleep(0.1)
+        time.sleep(0.5)
         # Spawn the model generating thread
         self.bg_model_measurement = BackgroundModel(self.bg_model_queue, self.meas_in_buffer, self.meas_sync_event)
         self.bg_model_measurement.start()
@@ -228,7 +228,7 @@ class Program(QWidget):
 
     def collect_bg_model_measurement(self):
         self.main_stream_paused.set_state(False)
-        time.sleep(0.1)
+        time.sleep(0.5)
         self.bg_model = self.bg_model_queue.get()
         self.bg_snippets = self.bg_model_queue.get()
         self.update_bg_model_ax()
@@ -257,7 +257,7 @@ class Program(QWidget):
         Ensures streams exit nicely
         """
         self.shutting_down.set_state(True)
-        time.sleep(0.2)
+        time.sleep(0.5)
         event.accept()
 
     # TODO: EVERYTHING BELOW IS UNFINISHED

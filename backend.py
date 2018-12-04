@@ -157,8 +157,8 @@ class MainStream(QtCore.QThread):
                         channels=2,
                         input=True,
                         output=True,
-                        input_device_index=2,
-                        output_device_index=1,
+                        input_device_index=3,
+                        output_device_index=2,
                         stream_callback=self.callback)
 
         print("\nMain stream started!")
@@ -187,6 +187,7 @@ class MainStream(QtCore.QThread):
         """
         Callback function for the ref_in/meas_out stream
         """
+        # print("main: {0}".format(time_info))
         in_data = np.fromstring(in_bytes, dtype=NP_FORMAT)   # Convert audio data in bytes to an array.
         in_data = np.reshape(in_data, (BUFFER, 2))        # Reshape array to two channels.
         in_data = np.average(in_data, axis=1)             # Convert audio data to mono by averaging channels.
@@ -228,7 +229,7 @@ class MeasStream(QtCore.QThread):
                         rate=RATE,
                         channels=1,
                         input=True,
-                        input_device_index=0,
+                        input_device_index=2,
                         stream_callback=self.callback)
 
         print("\nMeas stream started!")
@@ -245,6 +246,7 @@ class MeasStream(QtCore.QThread):
         """
         Callback function for the meas_in stream
         """
+        # print("meas: {0}".format(time_info))
         audio_data = np.fromstring(in_bytes, dtype=NP_FORMAT)  # Convert audio data in bytes to an array.
 
         # Write meas_in data to shared queue.
@@ -298,7 +300,6 @@ class BackgroundModel(QtCore.QThread):
         Exports to wav for reference.
         Stops the main stream for quietness during background recording.
         """
-        time.sleep(0.1)
         file_name = "BACKGROUND_REC.wav"
         print("Recording {0}s from ref_in_buffer_queue ({1} export={2})..."
               .format(round(BACKGROUND_LENGTH / RATE, 2), file_name, EXPORT_WAV))
@@ -452,7 +453,7 @@ class LatencyCalibration(QtCore.QThread):
         meas_thread.start()
 
         # To ensure synchronised recording
-        time.sleep(0.2)
+        time.sleep(0.5)
         ref_in_start_event.set()
         time.sleep(MEAS_REF_LATENCY)
         meas_in_start_event.set()
@@ -543,7 +544,7 @@ class AlgorithmIteration(QtCore.QThread):
         meas_thread.start()
 
         # To ensure synchronised recording
-        time.sleep(0.2)
+        time.sleep(1)
         ref_in_start_event.set()
         time.sleep(MEAS_REF_LATENCY)
         meas_in_start_event.set()
@@ -633,12 +634,18 @@ class AlgorithmIteration(QtCore.QThread):
     def subtract_bg_from_meas(self):
         """
         Subtracts the pre-generated background model from the meas_in snippet.
+        Uses the fancy formula we derived (see lab book)
         """
         print("Subtracting the background model from the meas_in frequency domain snippet...")
         assert (self.meas_in_snippet_fd_smooth[0] == self.bg_model[0]).all(), \
             "Cannot subtract background from meas_in: Their frequency steps (x-values) are not identical!"
 
-        self.meas_in_snippet_fd_smooth[1] -= self.bg_model[1]
+        y_fd_bg = self.bg_model[1]
+        x_fd_meas, y_fd_meas = self.meas_in_snippet_fd_smooth
+
+        y_fd_meas = 20 * np.log10(10 ** (y_fd_meas/20) - 10 ** (y_fd_bg/20))
+
+        self.meas_in_snippet_fd_smooth = [x_fd_meas, y_fd_meas]
 
     def normalise_snippets_fd(self):
         """
@@ -657,6 +664,7 @@ class AlgorithmIteration(QtCore.QThread):
         """
         Calculates the RTF by subtracting ref_in from meas_in.
         """
+        print("\nCalculating RTF...")
         x_rtf = self.ref_in_snippet_fd_smooth[0]
         y_rtf = self.meas_in_snippet_fd_smooth[1] - self.ref_in_snippet_fd_smooth[1]
         self.rtf = [x_rtf, y_rtf]
@@ -668,6 +676,7 @@ class AlgorithmIteration(QtCore.QThread):
         RMS gives extra weight to outliers as these are extra sensitive to perceived sound.
         """
         self.rms = np.average(np.sum(np.square(self.rtf[1])))
+        print("\nCalculated RMS: {0}".format(self.rms))
 
 
 def _record(bfr_array, rec_array, stream_sync_event, start_event):
@@ -678,7 +687,7 @@ def _record(bfr_array, rec_array, stream_sync_event, start_event):
     but synchronises with the stream frequency.
     start_event: to ensure synchronised recording for multiple threads
     """
-    time.sleep(0.2)  # Wait to ensure buffer is full before beginning recording
+    time.sleep(0.5)  # Wait to ensure buffer is full before beginning recording
     assert len(rec_array) % len(bfr_array) == 0, \
         "The recording array length needs to be an integer multiple of the buffer size"
 
