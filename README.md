@@ -1,4 +1,4 @@
-# autonomous_room_correction
+# Autonomous Room Correction
 
 ## Project Motivation
 Digital room correction aims to actively compensate for acoustic distortions caused by the room and speakers by applying processing to the source signal. This is traditionally accomplished in three steps. First, the acoustic properties of the room-speaker system are estimated. Secondly, the correction parameters are calculated based on these estimates. Lastly, the correction filters are applied in real-time.
