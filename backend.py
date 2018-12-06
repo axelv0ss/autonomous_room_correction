@@ -38,6 +38,8 @@ class Flag(object):
 
 
 class PeakFilter(object):
+    count = 0
+
     def __init__(self, fc, gain, q):
         """
         Filter object to be used in FilterChain
@@ -47,6 +49,9 @@ class PeakFilter(object):
         :param q: The Q-factor of the filter
         """
         self.set_params(fc, gain, q)
+
+        self.id = PeakFilter.count
+        PeakFilter.count += 1
 
     def set_params(self, fc, gain, q):
         """
@@ -79,7 +84,7 @@ class PeakFilter(object):
         Used by FilterChain to print the state of the filter chain.
         Also used as legend in plot.
         """
-        return "fc={0}, g={1}, q={2}".format(self.fc, self.gain, self.q)
+        return "id={0} fc={1}, g={2}, q={3}".format(self.id, self.fc, self.gain, self.q)
 
     def get_tf(self):
         """
@@ -97,6 +102,9 @@ class FilterChain(object):
         *filters: Arbitrary number of filter objects, e.g. PeakFilter
         """
         self.filters = filters
+
+        self.stf = None
+        self.ms = None
 
         # Calculate initial conditions
         self.zi = [signal.lfilter_zi(*filt.get_b_a()) for filt in self.filters]
@@ -117,10 +125,14 @@ class FilterChain(object):
         """
         self.filters[i].set_params(fc, gain, q)
 
+    def set_stf_ms(self, stf, ms):
+        self.stf = stf
+        self.ms = ms
+
     def get_filters(self):
         return self.filters[:]
 
-    def copy_chain_state(self, chain):
+    def apply_chain_state(self, chain):
         """
         Takes in another chain objects and copies its settings
         """
@@ -148,8 +160,8 @@ class FilterChain(object):
         Returns the current configuration of the filter chain in string form.
         """
         out = "Current settings of filter chain:"
-        for i, filt in enumerate(self.filters):
-            out += "\n{0} {1}".format(i, filt.get_settings())
+        for filt in self.filters:
+            out += "\n{0}".format(filt.get_settings())
         return out
 
     def get_all_filters_settings_tf(self):
@@ -162,6 +174,9 @@ class FilterChain(object):
         for filt in self.filters:
             out.append({"settings": filt.get_settings(), "tf": filt.get_tf()})
         return out
+
+    def get_stf_tf(self):
+        return self.stf[:], self.ms
 
 
 class Population(object):
@@ -303,7 +318,7 @@ class MainStream(QtCore.QThread):
             out_data = in_data
 
         # Write meas_out data to shared queue.
-        # TODO Is it even necessary to write this data to a shared queue??
+        # TODO Is it even necessary to write this data to a shared array??
         self.meas_out_buffer[:] = out_data[:]
 
         out_data = np.repeat(out_data, 2)                   # Convert to 2-channel audio for compatib. with stream
@@ -575,7 +590,8 @@ class Algorithm(QtCore.QThread):
     """
     The evolutionary algorithm that runs in the background and continuously sends back values for plotting.
     """
-    def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model, live_chain):
+    def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model,
+                 live_chain):
         super().__init__()
         self.sendback_queue = sendback_queue
         self.ref_in_buffer = ref_in_buffer
@@ -586,60 +602,63 @@ class Algorithm(QtCore.QThread):
         self.live_chain = live_chain
 
         self.population = None
-        self.stf = None
-        self.ms = None
+        # self.stf = None
+        # self.ms = None
 
     def run(self):
-        stf, ms = self.measure_stf_ms()  # Initial measurement of STF
-        self.population = Population(ms)  # Initialise the population
+        # Measure initial STF
+        print("Measuring initial STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
+        initial_stf, initial_ms = self.measure_stf_ms(verbose=False)
+        print("Calculated initial MS: {0}".format(initial_ms))
 
-        initial_stf = stf
+        # Initialise the population
+        self.population = Population(initial_ms)
 
-        best_chain = self.live_chain
-        best_ms = ms
-        best_stf = stf
+        # Iterate through every chain in the population
         for i, chain in enumerate(self.population.get_population()):
-            self.live_chain.copy_chain_state(chain)
-            print("\nApplying filter {0}/{1}\n{2}"
-                  .format(i+1, len(self.population.get_population()), chain.get_chain_settings()))
-            stf, ms = self.measure_stf_ms()
-            if ms < best_ms:
-                best_chain = chain
-                best_ms = ms
-                best_stf = stf
+            print("\nApplying chain {0}/{1}".format(i + 1, len(self.population.get_population())))
+            print(chain.get_chain_settings())
 
-        print("Best: {0}".format(best_ms))
+            # Apply the current chain
+            self.live_chain.apply_chain_state(chain)
+
+            # Measure STF and MS, and save as instance attribute of the chain
+            print("Measuring STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
+            stf, ms = self.measure_stf_ms(verbose=False)
+            print("Calculated MS: {0}".format(ms))
+            chain.set_stf_ms(stf, ms)
+
+        best_chain = sorted(self.population.get_population(), key=lambda x: x.ms)[0]
+        print("Best: {0}".format(best_chain.ms))
         self.live_chain.copy_chain_state(best_chain)
 
-        # self.sendback_queue.put(self.ref_in_snippet_fd_smooth)
-        # self.sendback_queue.put(self.meas_in_snippet_fd_smooth)
-
+        # Send back stuff
         self.sendback_queue.put(initial_stf)
-        self.sendback_queue.put(best_stf)
-        self.sendback_queue.put(best_ms)
+        self.sendback_queue.put(best_chain.stf)
+        self.sendback_queue.put(best_chain.ms)
 
         # Finishing this run() function triggers any GUI listeners for the self.finished() flag
 
-    def measure_stf_ms(self):
+    def measure_stf_ms(self, verbose=True):
         """
         Measures the STF (System Transfer Function) and its associated Mean-Squared value.
         Returns: stf (x, y arrays), ms (float)
         """
-        print("\nMeasuring STF:")
+        if verbose: print("\nMeasuring STF:")
 
         # Keep iterating until a sufficiently loud measurement is obtained
         while True:
             # Record
-            ref_in_snippet_td, meas_in_snippet_td = self.record_snippets()
+            ref_in_snippet_td, meas_in_snippet_td = self.record_snippets(verbose)
 
-            # Calculate
-            ref_in_snippet_td, meas_in_snippet_td = self.hanning_snippets_td(ref_in_snippet_td, meas_in_snippet_td)
-            ref_in_snippet_fd, meas_in_snippet_fd = self.ft_snippets(ref_in_snippet_td, meas_in_snippet_td)
-            ref_in_snippet_fd, meas_in_snippet_fd = self.mask_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd)
+            # Calculate the STF
+            ref_in_snippet_td, meas_in_snippet_td = self.hanning_snippets_td(ref_in_snippet_td, meas_in_snippet_td, verbose)
+            ref_in_snippet_fd, meas_in_snippet_fd = self.ft_snippets(ref_in_snippet_td, meas_in_snippet_td, verbose)
+            ref_in_snippet_fd, meas_in_snippet_fd = self.mask_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd, verbose)
             ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth = self.smoothen_snippets_fd(ref_in_snippet_fd,
-                                                                                            meas_in_snippet_fd)
+                                                                                            meas_in_snippet_fd, verbose)
             try:
-                meas_in_snippet_fd_smooth = self.subtract_bg_from_meas(self.bg_model, meas_in_snippet_fd_smooth)
+                meas_in_snippet_fd_smooth = self.subtract_bg_from_meas(self.bg_model, meas_in_snippet_fd_smooth, verbose)
             except QuietMeasurementException:
                 # If nans, iterate through while loop once again
                 print("\nMeasurement too quiet, measuring STF again...")
@@ -652,26 +671,27 @@ class Algorithm(QtCore.QThread):
                 break
 
         ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth = self.normalise_snippets_fd(ref_in_snippet_fd_smooth,
-                                                                                         meas_in_snippet_fd_smooth)
-        stf = self.calculate_stf(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth)
-        ms = self.calculate_ms(stf)
+                                                                                         meas_in_snippet_fd_smooth, verbose)
+        stf = self.calculate_stf(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth, verbose)
+        ms = self.calculate_ms(stf, verbose)
 
-        # Return
-        print("STF and MS calculated!")
+        # Return the calculated STF and MS value
+        if verbose: print("STF and MS calculated!")
 
         return stf, ms
 
-    def record_snippets(self):
+    def record_snippets(self, verbose=True):
         """
         Uses _record to record the two streams in parallel.
         Exports to wav for reference.
         """
         file_names = ["REF_IN_REC.wav", "MEAS_IN_REC.wav"]
 
-        print("Recording {0}s from ref_in_buffer ({1} export={2})..."
-              .format(round(SNIPPET_LENGTH / RATE, 2), file_names[0], EXPORT_WAV))
-        print("Recording {0}s from meas_in_buffer ({1} export={2})..."
-              .format(round(SNIPPET_LENGTH / RATE, 2), file_names[1], EXPORT_WAV))
+        if verbose:
+            print("Recording {0}s from ref_in_buffer ({1} export={2})..."
+                  .format(round(SNIPPET_LENGTH / RATE, 2), file_names[0], EXPORT_WAV))
+            print("Recording {0}s from meas_in_buffer ({1} export={2})..."
+                  .format(round(SNIPPET_LENGTH / RATE, 2), file_names[1], EXPORT_WAV))
 
         # Arrays in which to record
         ref_in_rec = np.zeros(SNIPPET_LENGTH, dtype=NP_FORMAT)
@@ -704,16 +724,17 @@ class Algorithm(QtCore.QThread):
             write(file_names[0], RATE, ref_in_rec)
             write(file_names[1], RATE, meas_in_rec)
 
-        print("Recorded {0}s from ref_in_buffer to REF_IN_REC ({1} export={2})"
-              .format(round(SNIPPET_LENGTH / RATE, 2), file_names[0], EXPORT_WAV))
-        print("Recorded {0}s from meas_in_buffer to MEAS_IN_BFR ({1} export={2})"
-              .format(round(SNIPPET_LENGTH / RATE, 2), file_names[1], EXPORT_WAV))
+        if verbose:
+            print("Recorded {0}s from ref_in_buffer to REF_IN_REC ({1} export={2})"
+                  .format(round(SNIPPET_LENGTH / RATE, 2), file_names[0], EXPORT_WAV))
+            print("Recorded {0}s from meas_in_buffer to MEAS_IN_BFR ({1} export={2})"
+                  .format(round(SNIPPET_LENGTH / RATE, 2), file_names[1], EXPORT_WAV))
 
         x = np.arange(0, SNIPPET_LENGTH/RATE, 1 / RATE, dtype=NP_FORMAT)
         return [x, ref_in_rec], [x, meas_in_rec]
 
     @staticmethod
-    def hanning_snippets_td(ref_in_snippet_td, meas_in_snippet_td):
+    def hanning_snippets_td(ref_in_snippet_td, meas_in_snippet_td, verbose=True):
         """
         Applies a Hanning envelope to the reference and measurement snippets.
         Used to fulfill FFT requirement that time-domain signal needs to be periodic (zeros at beginning and end).
@@ -721,14 +742,14 @@ class Algorithm(QtCore.QThread):
               Compensate for this by multiplying the signal by 2:
               http://www.azimadli.com/vibman/thehanningwindow.htm
         """
-        print("Applying Hanning window to ref_in and meas_in time domain snippets...")
+        if verbose: print("Applying Hanning window to ref_in and meas_in time domain snippets...")
         window = np.hanning(len(ref_in_snippet_td[1]))
         ref_in_snippet_td[1] = 2 * window * ref_in_snippet_td[1]
         meas_in_snippet_td[1] = 2 * window * meas_in_snippet_td[1]
         return ref_in_snippet_td, meas_in_snippet_td
 
     @staticmethod
-    def ft_snippets(ref_in_snippet_td, meas_in_snippet_td):
+    def ft_snippets(ref_in_snippet_td, meas_in_snippet_td, verbose=True):
         """
         Function to calculate and append absolute value of Fourier Transform for the reference and measurement snippets.
 
@@ -736,7 +757,7 @@ class Algorithm(QtCore.QThread):
 
         The resulting arrays are: x [Hz] and y [dBFS].
         """
-        print("Fourier transforming ref_in and meas_in snippets...")
+        if verbose: print("Fourier transforming ref_in and meas_in snippets...")
 
         # Transform both snippets
         x_fd_ref, y_fd_ref = fourier_transform(ref_in_snippet_td[1])
@@ -749,13 +770,14 @@ class Algorithm(QtCore.QThread):
         return ref_in_snippet_fd, meas_in_snippet_fd
 
     @staticmethod
-    def mask_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd):
+    def mask_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd, verbose=True):
         """
         Masks the data to return only within the desired frequency range (in Hz)
         F_LIMITS = (lo_lim, hi_lim)
         """
-        print("Masking ref_in and meas_in frequency domain snippets between {0}Hz and {1}Hz..."
-              .format(F_LIMITS[0], F_LIMITS[1]))
+        if verbose:
+            print("Masking ref_in and meas_in frequency domain snippets between {0}Hz and {1}Hz..."
+                  .format(F_LIMITS[0], F_LIMITS[1]))
 
         assert (ref_in_snippet_fd[0] == meas_in_snippet_fd[0]).all(), \
             "Frequency steps (x-elements) in ref_in_snippet_fd and meas_in_snippet_fd are not the same, " \
@@ -772,12 +794,13 @@ class Algorithm(QtCore.QThread):
         return ref_in_snippet_fd, meas_in_snippet_fd
 
     @staticmethod
-    def smoothen_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd):
+    def smoothen_snippets_fd(ref_in_snippet_fd, meas_in_snippet_fd, verbose=True):
         """
         Smoothens the ref_in and meas_in snippets.
         """
-        print("Smoothening ref_in and meas_in frequency domain snippets with {0} octave bins..."
-              .format(round(OCT_FRAC, 4)))
+        if verbose:
+            print("Smoothening ref_in and meas_in frequency domain snippets with {0} octave bins..."
+                  .format(round(OCT_FRAC, 4)))
 
         x_fd, y_fd_ref = ref_in_snippet_fd
         y_fd_meas = meas_in_snippet_fd[1]
@@ -789,18 +812,18 @@ class Algorithm(QtCore.QThread):
         return ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth
 
     @staticmethod
-    def subtract_bg_from_meas(bg_model, meas_in_snippet_fd_smooth):
+    def subtract_bg_from_meas(bg_model, meas_in_snippet_fd_smooth, verbose=True):
         """
         Subtracts the pre-generated background model from the meas_in snippet.
         Uses the fancy formula we derived (see lab book page 36)
         """
         if bg_model is None:
             raise NoBackgroundException
-        
-        print("Subtracting the background model from the meas_in frequency domain snippet...")
+
+        if verbose: print("Subtracting the background model from the meas_in frequency domain snippet...")
         assert (meas_in_snippet_fd_smooth[0] == bg_model[0]).all(), \
             "Cannot subtract background from meas_in: Their frequency steps (x-values) are not identical!"
-        
+
         y_fd_bg = bg_model[1]
         x_fd_meas, y_fd_meas = meas_in_snippet_fd_smooth
 
@@ -815,13 +838,13 @@ class Algorithm(QtCore.QThread):
         return meas_in_snippet_fd_smooth
 
     @staticmethod
-    def normalise_snippets_fd(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth):
+    def normalise_snippets_fd(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth, verbose=True):
         """
         Normalises the magnitude of the snippets such that they are both centered at 0 dBFS.
         Calculates the average magnitude of the meas_in and ref_in snippets and compensated with how far it is from
         0 dBFS.
         """
-        print("Normalising ref_in and meas_in frequency domain snippets to 0 dBFS...")
+        if verbose: print("Normalising ref_in and meas_in frequency domain snippets to 0 dBFS...")
         avg_ref = np.average(ref_in_snippet_fd_smooth[1])
         avg_meas = np.average(meas_in_snippet_fd_smooth[1])
 
@@ -831,11 +854,11 @@ class Algorithm(QtCore.QThread):
         return ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth
 
     @staticmethod
-    def calculate_stf(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth):
+    def calculate_stf(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth, verbose=True):
         """
         Calculates the STF by subtracting ref_in from meas_in.
         """
-        print("Calculating STF...")
+        if verbose: print("Calculating STF...")
         x_stf = ref_in_snippet_fd_smooth[0]
         y_stf = meas_in_snippet_fd_smooth[1] - ref_in_snippet_fd_smooth[1]
         stf = [x_stf, y_stf]
@@ -843,14 +866,14 @@ class Algorithm(QtCore.QThread):
         return stf
 
     @staticmethod
-    def calculate_ms(stf):
+    def calculate_ms(stf, verbose=True):
         """
         Calculates the value of the objective function: Mean-Squared.
         A measure of the STF curve's deviation from being flat.
         MS gives extra weight to outliers as these are extra sensitive to perceived sound.
         """
         ms = np.average(np.sum(np.square(stf[1])))
-        print("Calculated RMS: {0}".format(ms))
+        if verbose: print("Calculated MS: {0}".format(ms))
         return ms
 
 
