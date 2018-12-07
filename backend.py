@@ -191,10 +191,10 @@ class Population(object):
                      termination criterion in the first iteration.
 
         Uses global parameters:
-        POP_SIZE      The size of the population.
-        NUM_FILTERS   The number of PeakFilter objects in each chain (population member).
-        F_LIMITS      Tuples of the form (lo, hi). Indicates the limits of the
-        GAIN_LIMITS   corresponding parameter to apply.
+        POP_SIZE      :The size of the population.
+        NUM_FILTERS   :The number of PeakFilter objects in each chain (population member).
+        F_LIMITS      :Tuples of the form (lo, hi). Indicates the limits of the
+        GAIN_LIMITS    corresponding parameter to apply.
         Q_LIMITS
         """
         self.population = list()  # Will contain FilterChain objects
@@ -273,14 +273,14 @@ class MainStream(QtCore.QThread):
                         channels=2,
                         input=True,
                         output=True,
-                        input_device_index=3,
-                        output_device_index=2,
+                        input_device_index=REF_IN_INDEX,
+                        output_device_index=MEAS_OUT_INDEX,
                         stream_callback=self.callback)
 
-        print("\nMain stream started!")
         print("Available audio devices by index:")
         for i in range(p.get_device_count()):
             print(i, p.get_device_info_by_index(i)['name'])
+        print("\nMain stream started (in: {0}, out: {1})!".format(REF_IN_INDEX, MEAS_OUT_INDEX))
 
         while not self.shutting_down.get_state():
             if stream.is_active() and not self.paused.get_state():
@@ -345,13 +345,12 @@ class MeasStream(QtCore.QThread):
                         rate=RATE,
                         channels=1,
                         input=True,
-                        input_device_index=2,
+                        input_device_index=MEAS_IN_INDEX,
                         stream_callback=self.callback)
 
-        print("\nMeas stream started!")
+        print("\nMeas stream started (in: {0})!".format(MEAS_IN_INDEX))
 
         while not self.shutting_down.get_state():
-            # print(self.program_shutdown.is_set())
             time.sleep(0.1)
 
         print("\nMeas stream shut down!")
@@ -591,7 +590,7 @@ class Algorithm(QtCore.QThread):
     The evolutionary algorithm that runs in the background and continuously sends back values for plotting.
     """
     def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model,
-                 live_chain):
+                 live_chain, update_filter_ax_signal):
         super().__init__()
         self.sendback_queue = sendback_queue
         self.ref_in_buffer = ref_in_buffer
@@ -602,6 +601,7 @@ class Algorithm(QtCore.QThread):
         self.live_chain = live_chain
 
         self.population = None
+        self.update_filter_ax_signal = update_filter_ax_signal
         # self.stf = None
         # self.ms = None
 
@@ -618,6 +618,7 @@ class Algorithm(QtCore.QThread):
         for i, chain in enumerate(self.population.get_population()):
             print("\nApplying chain {0}/{1}".format(i + 1, len(self.population.get_population())))
             print(chain.get_chain_settings())
+            self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
 
             # Apply the current chain
             self.live_chain.apply_chain_state(chain)
@@ -629,8 +630,8 @@ class Algorithm(QtCore.QThread):
             chain.set_stf_ms(stf, ms)
 
         best_chain = sorted(self.population.get_population(), key=lambda x: x.ms)[0]
-        print("Best: {0}".format(best_chain.ms))
-        self.live_chain.copy_chain_state(best_chain)
+        print("\nBest MS: {0}".format(best_chain.ms))
+        self.live_chain.apply_chain_state(best_chain)
 
         # Send back stuff
         self.sendback_queue.put(initial_stf)

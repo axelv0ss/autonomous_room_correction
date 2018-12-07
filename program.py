@@ -10,8 +10,12 @@ from matplotlib.figure import Figure
 
 
 class Program(QWidget):
+    # Signal
+    update_filter_ax_signal = QtCore.pyqtSignal()
+
     def __init__(self):
         super().__init__()
+        self.update_filter_ax_signal.connect(self.update_filter_ax)
         self.title = "Autonomous Room Correction  //  Rate: {0}Hz  //  Format: {1}  //  Buffer: {2}  //  " \
                      "Range: {3}Hz - {4}Hz".format(RATE, str(NP_FORMAT).split('\'')[1], BUFFER, *F_LIMITS)
         self.setWindowTitle(self.title)
@@ -36,6 +40,7 @@ class Program(QWidget):
         self.meas_sync_event = threading.Event()  # Acts as a clock for synchronised recording
         self.bg_model = None
 
+
     def init_queues(self):
         self.bg_model_queue = Queue()
         self.latency_queue = Queue()
@@ -43,16 +48,11 @@ class Program(QWidget):
         self.stf_queue = Queue()
 
     def init_live_chain(self):
-        f1 = PeakFilter(fc=50, gain=0, q=1)
-        f2 = PeakFilter(fc=120, gain=0, q=1)
-        f3 = PeakFilter(fc=300, gain=0, q=1)
-        f4 = PeakFilter(fc=625, gain=0, q=1)
-        f5 = PeakFilter(fc=1250, gain=0, q=1)
-        f6 = PeakFilter(fc=2500, gain=0, q=1)
-        f7 = PeakFilter(fc=5000, gain=0, q=1)
-        f8 = PeakFilter(fc=10000, gain=0, q=1)
-        f9 = PeakFilter(fc=20000, gain=0, q=1)
-        self.live_chain = FilterChain(f1, f2, f3, f4, f5, f6, f7, f8, f9)
+        filters = list()
+        for i in range(NUM_FILTERS):
+            fc, gain, q = Population.random_filter_params()
+            filters.append(PeakFilter(fc, 0, 1))
+        self.live_chain = FilterChain(*filters)
 
     def init_streams(self):
         self.main_stream = MainStream(self.ref_in_buffer, self.meas_out_buffer, self.live_chain, self.bypass_live_chain,
@@ -185,12 +185,13 @@ class Program(QWidget):
 
         self.canvas.draw()
 
+    # @QtCore.pyqtSlot()
     def update_filter_ax(self):
         # Remove all existing lines
         self.filter_ax.lines = list()
         # Plot live_chain
         f, H = self.live_chain.get_chain_tf()
-        self.filter_ax.semilogx(f, convert_to_dbfs(H), label="Chain", linewidth=2)
+        self.filter_ax.semilogx(f, convert_to_dbfs(H), label="Chain", linewidth=2, color="C0")
         # Plot individual filters
         for d in self.live_chain.get_all_filters_settings_tf():
             f, h = d["tf"]
@@ -208,8 +209,8 @@ class Program(QWidget):
     def update_stf_ax(self):
         # TODO
         self.stf_ax.lines = list()
-        self.stf_ax.plot(*self.stf, color="black", label="Best STF (MS={0})".format(round(self.ms)), linestyle="-", linewidth=2, zorder=-1)
-        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF".format(round(self.ms)), linestyle="-",
+        self.stf_ax.plot(*self.stf, color="black", label="Best STF (MS={0})".format(int(self.ms)), linestyle="-", linewidth=2, zorder=-1)
+        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF", linestyle="-",
                          linewidth=2)
         # self.stf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-", zorder=-1, linewidth=1)
         # self.stf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-", zorder=-1, linewidth=1)
@@ -266,9 +267,9 @@ class Program(QWidget):
         """
         Toy function to simulate a change in EQ.
         """
-        freqs = [50, 120, 300, 625, 1250, 2500, 5000, 10000, 20000]
-        for i, fc in enumerate(freqs):
-            self.live_chain.set_filter_params(i, fc, np.random.randint(-15, 10), np.random.random() * 2 + 0.5)
+        for i in range(len(self.live_chain.get_filters())):
+            fc, gain, q = Population.random_filter_params()
+            self.live_chain.set_filter_params(i, fc, gain, q)
         self.update_filter_ax()
 
     def start_algorithm(self):
@@ -277,7 +278,7 @@ class Program(QWidget):
         # TODO Pass in start parameters here, like an initial population etc?
         
         self.algorithm = Algorithm(self.stf_queue, self.ref_in_buffer, self.meas_in_buffer, self.main_sync_event, 
-                                   self.meas_sync_event, self.bg_model, self.live_chain)
+                                   self.meas_sync_event, self.bg_model, self.live_chain, self.update_filter_ax_signal)
         self.algorithm.start()
         self.algorithm.finished.connect(self.collect_algorithm)
 
