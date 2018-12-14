@@ -25,14 +25,15 @@ LATENCY_MEASUREMENT_LENGTH = 212992
 # Export wave files
 EXPORT_WAV = True
 
-F_LIMITS = [500, 18000]
+F_LIMITS = [50, 18000]
 OCT_FRAC = 1 / 24
 
 # For evolutionary algorithm
 POP_SIZE = 6
 NUM_FILTERS = 6
-GAIN_LIMITS = [-10, 0]
+GAIN_LIMITS = [-5, 2.5]
 Q_LIMITS = [0.5, 4]
+F_MODE = 100  # The mode for the triangular distribution to bias fc towards
 
 # For plots in interface
 FONTSIZE_TITLES = 12

@@ -10,7 +10,7 @@ from matplotlib.figure import Figure
 
 
 class Program(QWidget):
-    # Signal
+    # Signals are required to be class variables, just a pyQT thing
     update_filter_ax_signal = QtCore.pyqtSignal()
 
     def __init__(self):
@@ -120,7 +120,7 @@ class Program(QWidget):
 
         # Current Filter Chain
         self.filter_ax.set_title("Current Filter Chain", fontsize=FONTSIZE_TITLES)
-        self.filter_ax.set_ylabel("Transfer Function " + r"$H(z)$" + " [dBFS]", fontsize=FONTSIZE_LABELS)
+        self.filter_ax.set_ylabel("Transfer Function " + r"$H(z)$" + " [dB]", fontsize=FONTSIZE_LABELS)
         self.filter_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
         self.filter_ax.minorticks_on()
         self.filter_ax.tick_params(labelsize=FONTSIZE_TICKS)
@@ -132,7 +132,7 @@ class Program(QWidget):
 
         # Current STF
         self.stf_ax.set_title("Current STF", fontsize=FONTSIZE_TITLES)
-        self.stf_ax.set_ylabel("Magnitude [dBFS]", fontsize=FONTSIZE_LABELS)
+        self.stf_ax.set_ylabel("Magnitude [dB]", fontsize=FONTSIZE_LABELS)
         self.stf_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
         self.stf_ax.minorticks_on()
         self.stf_ax.tick_params(labelsize=FONTSIZE_TICKS)

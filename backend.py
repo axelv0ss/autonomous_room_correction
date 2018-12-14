@@ -114,6 +114,11 @@ class FilterChain(object):
         Filters the current buffer and updates initial conditions for all filters in the chain accordingly
         """
         data_out = data_in
+
+        # Reduce the amplitude of the signal an equivalent amount to the high gain limit for the filters.
+        # This prevents clipping.
+        data_out *= 10 ** (-GAIN_LIMITS[1] / 20)
+
         # Filter data and update all initial conditions for the buffer of data
         for i, filt in enumerate(self.filters):
             data_out, self.zi[i] = signal.lfilter(*filt.get_b_a(), data_out, zi=self.zi[i])
@@ -217,11 +222,17 @@ class Population(object):
         """
         Generates a random set of filter parameters: fc, gain, q
         Respects the limits set in params.py
+        Biases fc towards F_MODE, being the mode of a triangular distribution
         """
         assert F_LIMITS[0] > 0, "The lower frequency limit must be positive"
+        assert GAIN_LIMITS[1] >= 0, "The high gain limit must be non-negative"
 
         # For random frequency (log distribution between f_lo, f_hi)
-        alpha = np.random.random() * np.log2(F_LIMITS[1] / F_LIMITS[0])
+        # Generates a triangular distribution in log scale with a peak at mode_f
+        rand_mode = np.log2(F_MODE / F_LIMITS[0]) / np.log2(F_LIMITS[1] / F_LIMITS[0])
+        rand = np.random.triangular(0, rand_mode, 1)
+
+        alpha = rand * np.log2(F_LIMITS[1] / F_LIMITS[0])  # Generate the exponent
         fc = F_LIMITS[0] * 2 ** alpha
 
         # Linear distribution
@@ -320,6 +331,7 @@ class MainStream(QtCore.QThread):
         # Write meas_out data to shared queue.
         # TODO Is it even necessary to write this data to a shared array??
         self.meas_out_buffer[:] = out_data[:]
+        assert (out_data <= 1).all(), "Output signal clipped!"
 
         out_data = np.repeat(out_data, 2)                   # Convert to 2-channel audio for compatib. with stream
         out_bytes = out_data.astype(NP_FORMAT).tostring()     # Convert audio data back to bytes and return
