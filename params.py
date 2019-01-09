@@ -25,15 +25,23 @@ LATENCY_MEASUREMENT_LENGTH = 212992
 # Export wave files
 EXPORT_WAV = True
 
-F_LIMITS = [50, 18000]
+F_LIMITS = [500, 10000]
 OCT_FRAC = 1 / 24
 
 # For evolutionary algorithm
 POP_SIZE = 6
 NUM_FILTERS = 6
-GAIN_LIMITS = [-5, 2.5]
+GAIN_LIMITS = [-5, 0]
 Q_LIMITS = [0.5, 4]
-F_MODE = 100  # The mode for the triangular distribution to bias fc towards
+F_MODE = 500  # The mode for the triangular distribution to bias fc towards
+
+PROP_PROMOTED = 0.5  # Proportion of chains promoted in each iteration
+PROP_RND = 0.25  # Proportion of random filters added in filter pool (for mutation)
+
+# PROB_MUTATION = 0.2
+
+# To prevent signal clipping (dB)
+ATTENUATE_OUTPUT = -0
 
 # For plots in interface
 FONTSIZE_TITLES = 12
@@ -50,3 +58,7 @@ assert SNIPPET_LENGTH % BUFFER == 0, "SNIPPET_LENGTH must be an integer multiple
 assert BACKGROUND_LENGTH % BUFFER == 0, "BACKGROUND_LENGTH must be an integer multiple of BUFFER"
 assert LATENCY_MEASUREMENT_LENGTH % BUFFER == 0, "LATENCY_MEASUREMENT_LENGTH must be an integer multiple of BUFFER"
 assert BACKGROUND_LENGTH >= SNIPPET_LENGTH, "BACKGROUND_LENGTH must be greater than SNIPPET_LENGTH"
+assert int(POP_SIZE * PROP_PROMOTED) >= 2, \
+    "The number of promoted chains every iteration must not be less than 2 for meaningful crossover, but is {0}"\
+    .format(int(POP_SIZE * PROP_PROMOTED))
+assert F_LIMITS[0] <= F_MODE <= F_LIMITS[1], "F_MODE must be between the two F_LIMITS"

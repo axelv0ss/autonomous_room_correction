@@ -12,10 +12,12 @@ from matplotlib.figure import Figure
 class Program(QWidget):
     # Signals are required to be class variables, just a pyQT thing
     update_filter_ax_signal = QtCore.pyqtSignal()
+    update_stf_ax_signal = QtCore.pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self.update_filter_ax_signal.connect(self.update_filter_ax)
+        self.update_stf_ax_signal.connect(self.update_stf_ax)
         self.title = "Autonomous Room Correction  //  Rate: {0}Hz  //  Format: {1}  //  Buffer: {2}  //  " \
                      "Range: {3}Hz - {4}Hz".format(RATE, str(NP_FORMAT).split('\'')[1], BUFFER, *F_LIMITS)
         self.setWindowTitle(self.title)
@@ -36,10 +38,10 @@ class Program(QWidget):
         self.bypass_live_chain = Flag(False)
         self.shutting_down = Flag(False)
         self.main_stream_paused = Flag(False)
+        self.algorithm_running = Flag(True)
         self.main_sync_event = threading.Event()  # Acts as a clock for synchronised recording
         self.meas_sync_event = threading.Event()  # Acts as a clock for synchronised recording
         self.bg_model = None
-
 
     def init_queues(self):
         self.bg_model_queue = Queue()
@@ -184,6 +186,26 @@ class Program(QWidget):
         self.latency_ax.set_autoscale_on(True)
 
         self.canvas.draw()
+    
+    def update_best_ms_ax(self):
+        # TODO Temporary to see progress, should refactor from latency ax?
+
+        self.latency_ax.set_title("Best MS vs Iteration", fontsize=FONTSIZE_TITLES)
+        self.latency_ax.set_ylabel("MS", fontsize=FONTSIZE_LABELS)
+        self.latency_ax.set_xlabel("Iteration", fontsize=FONTSIZE_LABELS)
+        
+        # Remove all existing lines
+        self.latency_ax.lines = list()
+        # Plot avg ms
+        self.latency_ax.plot(self.best_ms_list, color="C0", label="Best MS")
+        self.latency_ax.legend(fontsize=FONTSIZE_LEGENDS)
+
+        # Dynamically set axes limits
+        self.latency_ax.relim()
+        self.latency_ax.autoscale_view()
+        self.latency_ax.set_autoscale_on(True)
+
+        self.canvas.draw()
 
     # @QtCore.pyqtSlot()
     def update_filter_ax(self):
@@ -208,15 +230,25 @@ class Program(QWidget):
 
     def update_stf_ax(self):
         # TODO
+        # Collect the data
+        self.initial_stf = self.stf_queue.get()
+        self.initial_ms = self.stf_queue.get()
+        self.stf = self.stf_queue.get()
+        self.ms = self.stf_queue.get()
+
         self.stf_ax.lines = list()
-        self.stf_ax.plot(*self.stf, color="black", label="Best STF (MS={0})".format(int(self.ms)), linestyle="-", linewidth=2, zorder=-1)
-        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF", linestyle="-",
+        self.stf_ax.plot(*self.stf, color="black", label="Current best STF (MS={0})".format(int(self.ms)), linestyle="-", linewidth=2, zorder=-1)
+        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF (MS={0})".format(int(self.initial_ms)), linestyle="-",
                          linewidth=2)
         # self.stf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-", zorder=-1, linewidth=1)
         # self.stf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-", zorder=-1, linewidth=1)
         self.stf_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
-    
+
+        # TODO only temporary, should have its own signal
+        self.best_ms_list = self.stf_queue.get()
+        self.update_best_ms_ax()
+
     def start_bg_model_measurement(self):
         # Deactivate buttons
         self.toggle_buttons_state()
@@ -236,7 +268,7 @@ class Program(QWidget):
         self.update_bg_model_ax()
         # Reactivate buttons
         self.toggle_buttons_state()
-    
+
     def start_latency_measurement(self):
         # Deactivate buttons
         self.toggle_buttons_state()
@@ -244,7 +276,7 @@ class Program(QWidget):
                                                       self.main_sync_event, self.meas_sync_event)
         self.latency_measurement.start()
         self.latency_measurement.finished.connect(self.collect_latency_measurement)
-    
+
     def collect_latency_measurement(self):
         self.latency_ref = self.latency_queue.get()
         self.latency_meas = self.latency_queue.get()
@@ -275,24 +307,27 @@ class Program(QWidget):
     def start_algorithm(self):
         # Deactivate buttons
         self.toggle_buttons_state()
+        self.alg_btn.setEnabled(True)
+        self.alg_btn.setText("Stop Algorithm")
+        self.alg_btn.clicked.disconnect()
+        self.alg_btn.clicked.connect(lambda: self.algorithm_running.set_state(False))
         # TODO Pass in start parameters here, like an initial population etc?
-        
-        self.algorithm = Algorithm(self.stf_queue, self.ref_in_buffer, self.meas_in_buffer, self.main_sync_event, 
-                                   self.meas_sync_event, self.bg_model, self.live_chain, self.update_filter_ax_signal)
+
+        self.algorithm = Algorithm(self.stf_queue, self.ref_in_buffer, self.meas_in_buffer, self.main_sync_event,
+                                   self.meas_sync_event, self.bg_model, self.live_chain, self.update_filter_ax_signal,
+                                   self.update_stf_ax_signal, self.algorithm_running)
         self.algorithm.start()
         self.algorithm.finished.connect(self.collect_algorithm)
 
     def collect_algorithm(self):
-        self.initial_stf = self.stf_queue.get()
-        self.stf = self.stf_queue.get()
-        self.ms = self.stf_queue.get()
-        self.update_stf_ax()
-
         # Reactivate buttons
+        self.alg_btn.setEnabled(False)
+        self.alg_btn.setText("Start Algorithm")
+        self.alg_btn.clicked.disconnect()
+        self.alg_btn.clicked.connect(self.start_algorithm)
         self.toggle_buttons_state()
 
     def export_data(self):
         # TODO: Need this functionality for saving data and later replotting.
         # Preferably a log of the whole program, saving everything. Not crucial at this stage.
         pass
-

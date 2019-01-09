@@ -5,6 +5,7 @@ import threading
 from PyQt5 import QtCore
 import queue
 import itertools
+import random
 
 
 class QuietMeasurementException(Exception):
@@ -55,7 +56,7 @@ class PeakFilter(object):
 
     def set_params(self, fc, gain, q):
         """
-        Used by FilterChain to set parameters of each filter
+        Used by __init__() to set parameters of each filter
         """
         # Save new instance variables
         self.fc = fc
@@ -104,6 +105,8 @@ class FilterChain(object):
         self.filters = filters
 
         self.stf = None
+        # TODO this should be none, only for debugging
+        # self.ms = int(np.random.random()*1000)
         self.ms = None
 
         # Calculate initial conditions
@@ -117,7 +120,7 @@ class FilterChain(object):
 
         # Reduce the amplitude of the signal an equivalent amount to the high gain limit for the filters.
         # This prevents clipping.
-        data_out *= 10 ** (-GAIN_LIMITS[1] / 20)
+        data_out *= 10 ** (ATTENUATE_OUTPUT / 20)
 
         # Filter data and update all initial conditions for the buffer of data
         for i, filt in enumerate(self.filters):
@@ -196,15 +199,15 @@ class Population(object):
                      termination criterion in the first iteration.
 
         Uses global parameters:
-        POP_SIZE      :The size of the population.
-        NUM_FILTERS   :The number of PeakFilter objects in each chain (population member).
-        F_LIMITS      :Tuples of the form (lo, hi). Indicates the limits of the
-        GAIN_LIMITS    corresponding parameter to apply.
+        POP_SIZE      The size of the population.
+        NUM_FILTERS   The number of PeakFilter objects in each chain (population member).
+        F_LIMITS      Tuples of the form (lo, hi). Indicates the limits of the
+        GAIN_LIMITS   corresponding parameter to apply.
         Q_LIMITS
         """
         self.population = list()  # Will contain FilterChain objects
-        self.avg_ms_list = [initial_ms]
-
+        # self.avg_ms_list = [initial_ms]
+        self.best_ms_list = [initial_ms]
         self.generate_initial_population()
 
     def generate_initial_population(self):
@@ -246,21 +249,94 @@ class Population(object):
     def get_population(self):
         return self.population[:]
 
-    def calculate_new_population(self, ms_list):
+    def calculate_new_population(self):
         """
-        Takes the evaluated MS values associated with each member
-
         Termination if performing worse than the last element in self.avg_ms_list
         Generate the same number of new solutions as the number of solutions terminated
         Pick random filters from the top performers
         """
-        pass
+        print("Calculating new population...")
+        
+        # Sort population by the chain's MS value
+        self.population.sort(key=lambda chain: chain.ms)
+        # Determine which chains get promoted
+        num_promoted = int(POP_SIZE * PROP_PROMOTED)
+        promoted = self.population[:num_promoted]
 
-    def calculate_prev_avg_ms(self):
-        """
-        Append to self.avg_ms_list. Gives a measure of how the correction is performing over time.
-        """
-        pass
+        print("Num promoted: {0} ({1}% of {2})".format(num_promoted, 100 * PROP_PROMOTED, POP_SIZE))
+
+        # Generate a filter pool of all filters from the promoted chains
+        filter_pool = list()
+        for chain in promoted:
+            filter_pool.extend(chain.filters)
+        
+        # Append random filters into filter pool for randomness/mutation
+        # TODO code mutation, not purely random
+        num_rnd = int(len(filter_pool) * PROP_RND)
+        for _ in range(num_rnd):
+            filter_pool.append(PeakFilter(*self.random_filter_params()))
+        
+        print("Filter pool: {0} filters, {1} from random ({2}% of {3})"
+              .format(len(filter_pool), num_rnd, 100 * PROP_RND, len(filter_pool) - num_rnd))
+        
+        # Create the new filter chains
+        num_new_chains = POP_SIZE - num_promoted
+        new_chains = list()
+        for _ in range(num_new_chains):
+            chain = FilterChain(*random.sample(filter_pool, NUM_FILTERS))
+            new_chains.append(chain)
+            
+        print("Num new chains: {0} ({1} - {2})".format(num_new_chains, POP_SIZE, num_promoted))
+
+        # Save the new population!
+        # Do a random shuffle to remove bias of promoted and new_chains being
+        # applied in different parts of the song. Shouldn't matter but just in case.
+        # Lastly, reset the self.population list. We will create the new one.
+        self.population = promoted + new_chains
+        
+        print()
+        for chain in self.population:
+            for filt in chain.filters:
+                print(filt.id, end="\t")
+            print()
+            
+        random.shuffle(self.population)
+        
+        # # Generate new chains by cross-breeding
+        # num_new_chains = POP_SIZE - len(promoted)
+        # new_chains = list()
+        # for _ in range(num_new_chains):
+        #     chain = FilterChain(*random.sample(filter_pool, NUM_FILTERS))
+        #     new_chains.append(chain)
+        #
+        #
+        # # Mutate all chains over all parameters (?)
+        # # TODO
+        # for chain in new_population:
+        #     for filt in chain.filters:
+        #         for param in [filt.fc, filt.gain, filt.q]:
+        #             if np.random.random() < PROB_MUTATION:
+        #                 pass
+    
+    def save_best_ms(self):
+        best_chain = sorted(self.population, key=lambda x: x.ms)[0]
+        self.best_ms_list.append(best_chain.ms)
+    
+    # def calculate_avg_ms(self):
+    #     """
+    #     Append to self.avg_ms_list. Gives a measure of how the correction is performing over time.
+    #     """
+    #     avg = sum([chain.ms for chain in self.population]) / len(self.population)
+    #     self.avg_ms_list.append(avg)
+    #
+    #     for chain in self.population:
+    #         print(chain.ms)
+    #         for filt in chain.filters:
+    #             print(filt.id, end=" ")
+    #         print()
+    #         print()
+    #
+    #     print("Current average MS: {0}".format(avg), end="\n")
 
 
 class MainStream(QtCore.QThread):
@@ -331,7 +407,8 @@ class MainStream(QtCore.QThread):
         # Write meas_out data to shared queue.
         # TODO Is it even necessary to write this data to a shared array??
         self.meas_out_buffer[:] = out_data[:]
-        assert (out_data <= 1).all(), "Output signal clipped!"
+        assert (out_data <= 1).all(), "Output signal clipped! Max: {0}" \
+                                      .format(np.max(out_data))
 
         out_data = np.repeat(out_data, 2)                   # Convert to 2-channel audio for compatib. with stream
         out_bytes = out_data.astype(NP_FORMAT).tostring()     # Convert audio data back to bytes and return
@@ -602,7 +679,7 @@ class Algorithm(QtCore.QThread):
     The evolutionary algorithm that runs in the background and continuously sends back values for plotting.
     """
     def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model,
-                 live_chain, update_filter_ax_signal):
+                 live_chain, update_filter_ax_signal, update_stf_ax_signal, algorithm_running):
         super().__init__()
         self.sendback_queue = sendback_queue
         self.ref_in_buffer = ref_in_buffer
@@ -614,6 +691,8 @@ class Algorithm(QtCore.QThread):
 
         self.population = None
         self.update_filter_ax_signal = update_filter_ax_signal
+        self.update_stf_ax_signal = update_stf_ax_signal
+        self.algorithm_running = algorithm_running
         # self.stf = None
         # self.ms = None
 
@@ -627,28 +706,37 @@ class Algorithm(QtCore.QThread):
         self.population = Population(initial_ms)
 
         # Iterate through every chain in the population
-        for i, chain in enumerate(self.population.get_population()):
-            print("\nApplying chain {0}/{1}".format(i + 1, len(self.population.get_population())))
-            print(chain.get_chain_settings())
-            self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
+        while self.algorithm_running.get_state():
+            for i, chain in enumerate(self.population.get_population()):
+                print("\nApplying chain {0}/{1}".format(i + 1, len(self.population.get_population())))
+                print(chain.get_chain_settings())
+                self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
 
-            # Apply the current chain
-            self.live_chain.apply_chain_state(chain)
+                # Apply the current chain
+                self.live_chain.apply_chain_state(chain)
 
-            # Measure STF and MS, and save as instance attribute of the chain
-            print("Measuring STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
-            stf, ms = self.measure_stf_ms(verbose=False)
-            print("Calculated MS: {0}".format(ms))
-            chain.set_stf_ms(stf, ms)
+                # Measure STF and MS, and save as instance attribute of the chain
+                print("Measuring STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
+                stf, ms = self.measure_stf_ms(verbose=False)
+                print("Calculated MS: {0}".format(ms))
+                chain.set_stf_ms(stf, ms)
 
-        best_chain = sorted(self.population.get_population(), key=lambda x: x.ms)[0]
-        print("\nBest MS: {0}".format(best_chain.ms))
+            best_chain = sorted(self.population.get_population(), key=lambda x: x.ms)[0]
+            print("\nBest MS: {0}".format(best_chain.ms))
+            
+            # self.population.calculate_avg_ms()
+            self.population.save_best_ms()
+            self.population.calculate_new_population()
+            
+            # Send back stuff
+            self.sendback_queue.put(initial_stf)
+            self.sendback_queue.put(initial_ms)
+            self.sendback_queue.put(best_chain.stf)
+            self.sendback_queue.put(best_chain.ms)
+            self.sendback_queue.put(self.population.best_ms_list)
+            self.update_stf_ax_signal.emit()
+
         self.live_chain.apply_chain_state(best_chain)
-
-        # Send back stuff
-        self.sendback_queue.put(initial_stf)
-        self.sendback_queue.put(best_chain.stf)
-        self.sendback_queue.put(best_chain.ms)
 
         # Finishing this run() function triggers any GUI listeners for the self.finished() flag
 
