@@ -85,7 +85,7 @@ class PeakFilter(object):
         Used by FilterChain to print the state of the filter chain.
         Also used as legend in plot.
         """
-        return "id={0} fc={1}, g={2}, q={3}".format(self.id, self.fc, self.gain, self.q)
+        return "filter_id={0}, fc={1}, g={2}, q={3}".format(self.id, self.fc, self.gain, self.q)
 
     def get_tf(self):
         """
@@ -172,7 +172,7 @@ class FilterChain(object):
         """
         Returns the current configuration of the filter chain in string form.
         """
-        out = "Current settings of filter chain:"
+        out = "Settings of filter chain:"
         for filt in self.filters:
             out += "\n{0}".format(filt.get_settings())
         return out
@@ -700,7 +700,8 @@ class Algorithm(QtCore.QThread):
     The evolutionary algorithm that runs in the background and continuously sends back data for plotting.
     """
     def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model,
-                 live_chain, update_filter_ax_signal, update_stf_ax_signal, algorithm_running):
+                 live_chain, update_filter_ax_signal, collect_algorithm_queue_data_signal, update_ms_iter_ax_signal,
+                 update_stf_ax_signal, algorithm_running):
         super().__init__()
         self.sendback_queue = sendback_queue
         self.ref_in_buffer = ref_in_buffer
@@ -712,6 +713,8 @@ class Algorithm(QtCore.QThread):
 
         self.population = None
         self.update_filter_ax_signal = update_filter_ax_signal
+        self.update_ms_iter_ax_signal = update_ms_iter_ax_signal
+        self.collect_algorithm_queue_data_signal = collect_algorithm_queue_data_signal
         self.update_stf_ax_signal = update_stf_ax_signal
         self.algorithm_running = algorithm_running
         # self.stf = None
@@ -719,7 +722,7 @@ class Algorithm(QtCore.QThread):
 
     def run(self):
         # Measure initial STF
-        print("Measuring initial STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
+        print("\nMeasuring initial STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
         initial_stf, initial_ms = self.measure_stf_ms(verbose=False)
         print("Calculated initial MS: {0}".format(initial_ms))
 
@@ -742,13 +745,10 @@ class Algorithm(QtCore.QThread):
                 stf, ms = self.measure_stf_ms(verbose=False)
                 print("Calculated MS: {0}".format(ms))
                 chain.set_stf_ms(stf, ms)
-
+        
             best_chain = sorted(self.population.get_population(), key=lambda x: x.ms)[0]
             print("\nBest MS: {0} (id={1})".format(best_chain.ms, best_chain.id))
-            
-            # self.population.calculate_avg_ms()
             self.population.save_best_ms()
-            self.population.calculate_new_population()
             
             # Send back stuff
             self.sendback_queue.put(initial_stf)
@@ -756,8 +756,13 @@ class Algorithm(QtCore.QThread):
             self.sendback_queue.put(best_chain.stf)
             self.sendback_queue.put(best_chain.ms)
             self.sendback_queue.put(self.population.best_ms_list)
-            self.update_stf_ax_signal.emit()
-
+            self.sendback_queue.put(self.population.get_population())
+            
+            self.collect_algorithm_queue_data_signal.emit()  # Trigger collection of algorithm data from sendback_queue
+            self.update_ms_iter_ax_signal.emit()  # Trigger updating the algorithm progression plot
+            self.update_stf_ax_signal.emit()  # Trigger updating the STF plot
+            
+            self.population.calculate_new_population()
             iteration += 1
 
         self.live_chain.apply_chain_state(best_chain)

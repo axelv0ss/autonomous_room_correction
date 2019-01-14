@@ -1,10 +1,11 @@
 from backend import *
 from queue import Queue
 
-from PyQt5.QtWidgets import QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QCheckBox
+from PyQt5.QtWidgets import QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QCheckBox, QFileDialog
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from copy import deepcopy
 
 # TODO is meas_out_buffer really needed?
 
@@ -12,16 +13,25 @@ from matplotlib.figure import Figure
 class Program(QWidget):
     # Signals are required to be class variables, just a pyQT thing
     update_filter_ax_signal = QtCore.pyqtSignal()
+    collect_algorithm_queue_data_signal = QtCore.pyqtSignal()
     update_stf_ax_signal = QtCore.pyqtSignal()
+    update_ms_iter_ax_signal = QtCore.pyqtSignal()
 
     def __init__(self):
         super().__init__()
+        # Connect signals to functions
         self.update_filter_ax_signal.connect(self.update_filter_ax)
+        self.collect_algorithm_queue_data_signal.connect(self.collect_algorithm_queue_data)
         self.update_stf_ax_signal.connect(self.update_stf_ax)
+        self.update_ms_iter_ax_signal.connect(self.update_ms_iter_ax)
+        
         self.title = "Autonomous Room Correction  //  Rate: {0}Hz  //  Format: {1}  //  Buffer: {2}  //  " \
                      "Range: {3}Hz - {4}Hz".format(RATE, str(NP_FORMAT).split('\'')[1], BUFFER, *F_LIMITS)
         self.setWindowTitle(self.title)
         self.setGeometry(200, 50, 1200, 1000)
+
+        # Used to save the evolution of the algorithm
+        self.population_history = list()
 
         self.init_gui()
         self.init_shared_objects()
@@ -41,7 +51,7 @@ class Program(QWidget):
         self.bypass_live_chain = Flag(False)
         self.shutting_down = Flag(False)
         self.main_stream_paused = Flag(False)
-        self.algorithm_running = Flag(True)
+        self.algorithm_running = Flag(False)
         self.main_sync_event = threading.Event()  # Acts as a clock for synchronised recording
         self.meas_sync_event = threading.Event()  # Acts as a clock for synchronised recording
         self.bg_model = None
@@ -53,7 +63,7 @@ class Program(QWidget):
         self.bg_model_queue = Queue()
         self.latency_queue = Queue()
         self.filter_queue = Queue()
-        self.stf_queue = Queue()
+        self.alg_queue = Queue()
 
     def init_live_chain(self):
         """
@@ -83,28 +93,22 @@ class Program(QWidget):
         self.canvas = FigureCanvas(self.figure)
         self.toolbar = NavigationToolbar(self.canvas, self)
 
-        (self.bg_model_ax, self.latency_ax), (self.filter_ax, self.stf_ax) = self.figure.subplots(2, 2)
+        (self.bg_model_ax, self.ms_iter_ax), (self.filter_ax, self.stf_ax) = self.figure.subplots(2, 2)
         self.figure.tight_layout()
-
+        
         self.bg_btn = QPushButton("Take Background Measurement")
         self.bg_btn.clicked.connect(self.start_bg_model_measurement)
-        self.latency_btn = QPushButton("Take Latency Measurement")
-        self.latency_btn.clicked.connect(self.start_latency_measurement)
-
-        self.rndflt_btn = QPushButton("Randomise Filter")
-        self.rndflt_btn.clicked.connect(self.random_filter_settings)
         self.alg_btn = QPushButton("Start Algorithm")
         self.alg_btn.clicked.connect(self.start_algorithm)
-
+        self.export_btn = QPushButton("Export Data")
+        self.export_btn.clicked.connect(self.export_data)
         self.bypass_cbox = QCheckBox("Bypass")
         self.bypass_cbox.clicked.connect(self.toggle_bypass)
 
         button_layout = QHBoxLayout()
-        # button_layout.addStretch()
         button_layout.addWidget(self.bg_btn)
-        button_layout.addWidget(self.latency_btn)
-        button_layout.addWidget(self.rndflt_btn)
         button_layout.addWidget(self.alg_btn)
+        button_layout.addWidget(self.export_btn)
         button_layout.addWidget(self.bypass_cbox)
 
         main_layout = QVBoxLayout()
@@ -125,15 +129,15 @@ class Program(QWidget):
         self.bg_model_ax.grid(which="minor", linestyle="--", alpha=0.2)
         self.bg_model_ax.set_xscale("log")
 
-        # Latency Measurement
-        self.latency_ax.set_title("Latency Measurement", fontsize=FONTSIZE_TITLES)
-        self.latency_ax.set_ylabel("Amplitude [a.u.]", fontsize=FONTSIZE_LABELS)
-        self.latency_ax.set_xlabel("Time [s]", fontsize=FONTSIZE_LABELS)
-        self.latency_ax.minorticks_on()
-        self.latency_ax.tick_params(labelsize=FONTSIZE_TICKS)
-        self.latency_ax.grid(which="major", linestyle="-", alpha=0.4)
-        self.latency_ax.grid(which="minor", linestyle="--", alpha=0.2)
-
+        # Algorithm Progression
+        self.ms_iter_ax.set_title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
+        self.ms_iter_ax.set_ylabel("Mean-Squared Error", fontsize=FONTSIZE_LABELS)
+        self.ms_iter_ax.set_xlabel("Iteration", fontsize=FONTSIZE_LABELS)
+        self.ms_iter_ax.minorticks_on()
+        self.ms_iter_ax.tick_params(labelsize=FONTSIZE_TICKS)
+        self.ms_iter_ax.grid(which="major", linestyle="-", alpha=0.4)
+        self.ms_iter_ax.grid(which="minor", linestyle="--", alpha=0.2)
+        
         # Current Filter Chain
         self.filter_ax.set_title("Current Filter Chain", fontsize=FONTSIZE_TITLES)
         self.filter_ax.set_ylabel("Transfer Function " + r"$H(z)$" + " [dB]", fontsize=FONTSIZE_LABELS)
@@ -158,22 +162,29 @@ class Program(QWidget):
 
         self.canvas.draw()
 
-    def toggle_buttons_state(self):
-        new_state = not self.bg_btn.isEnabled()
-        self.bg_btn.setEnabled(new_state)
-        self.latency_btn.setEnabled(new_state)
-        self.alg_btn.setEnabled(new_state)
-        self.rndflt_btn.setEnabled(new_state)
-        self.bypass_cbox.setEnabled(new_state)
+    def toggle_buttons_state(self, bg, alg, export, bypass):
+        """
+        Takes boolean arguments to set the state of the buttons in the interface.
+        """
+        self.bg_btn.setEnabled(bg)
+        self.alg_btn.setEnabled(alg)
+        self.export_btn.setEnabled(export)
+        self.bypass_cbox.setEnabled(bypass)
 
     def toggle_bypass(self):
+        """
+        Function triggered when interacting with the "Bypass" checkbox.
+        Allows the user to A/B between the filtered and unfiltered signals.
+        """
         if self.bypass_cbox.isChecked():
             print("\nFilters bypassed!")
+            self.toggle_buttons_state(False, False, False, True)
             self.bypass_live_chain.set_state(True)
         else:
             print("\nFilters active!")
+            self.toggle_buttons_state(True, True, True, True)
             self.bypass_live_chain.set_state(False)
-
+    
     def update_bg_model_ax(self):
         # Remove all existing lines
         self.bg_model_ax.lines = list()
@@ -185,43 +196,21 @@ class Program(QWidget):
         self.bg_model_ax.legend(["Log Binned Model", "N={0} Snippets".format(len(self.bg_snippets))],
                                 fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
-
-    def update_latency_ax(self):
-        # Remove all existing lines
-        self.latency_ax.lines = list()
-        # Plot latencies
-        self.latency_ax.plot(*self.latency_ref, color="C0", label="Reference In")
-        self.latency_ax.plot(*self.latency_meas, color="C1", label="Measurement In")
-        self.latency_ax.legend(fontsize=FONTSIZE_LEGENDS)
-
-        # Dynamically set axes limits
-        self.latency_ax.relim()
-        self.latency_ax.autoscale_view()
-        self.latency_ax.set_autoscale_on(True)
-
-        self.canvas.draw()
     
-    def update_best_ms_ax(self):
-        # TODO Temporary to see progress, should refactor from latency ax?
-
-        self.latency_ax.set_title("Best MS vs Iteration", fontsize=FONTSIZE_TITLES)
-        self.latency_ax.set_ylabel("MS", fontsize=FONTSIZE_LABELS)
-        self.latency_ax.set_xlabel("Iteration", fontsize=FONTSIZE_LABELS)
-        
+    def update_ms_iter_ax(self):
         # Remove all existing lines
-        self.latency_ax.lines = list()
+        self.ms_iter_ax.lines = list()
         # Plot avg ms
-        self.latency_ax.plot(self.best_ms_list, color="C0", label="Best MS")
-        self.latency_ax.legend(fontsize=FONTSIZE_LEGENDS)
+        self.ms_iter_ax.plot(self.best_ms_list, color="C0", label="Best MS")
+        self.ms_iter_ax.legend(fontsize=FONTSIZE_LEGENDS)
 
         # Dynamically set axes limits
-        self.latency_ax.relim()
-        self.latency_ax.autoscale_view()
-        self.latency_ax.set_autoscale_on(True)
+        self.ms_iter_ax.relim()
+        self.ms_iter_ax.autoscale_view()
+        self.ms_iter_ax.set_autoscale_on(True)
 
         self.canvas.draw()
 
-    # @QtCore.pyqtSlot()
     def update_filter_ax(self):
         # Remove all existing lines
         self.filter_ax.lines = list()
@@ -243,29 +232,32 @@ class Program(QWidget):
         self.canvas.draw()
 
     def update_stf_ax(self):
-        # TODO
-        # Collect the data
-        self.initial_stf = self.stf_queue.get()
-        self.initial_ms = self.stf_queue.get()
-        self.stf = self.stf_queue.get()
-        self.ms = self.stf_queue.get()
-
         self.stf_ax.lines = list()
-        self.stf_ax.plot(*self.stf, color="black", label="Current best STF (MS={0})".format(int(self.ms)), linestyle="-", linewidth=2, zorder=-1)
-        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF (MS={0})".format(int(self.initial_ms)), linestyle="-",
-                         linewidth=2)
-        # self.stf_ax.plot(*self.ref, color="C0", label="Normalised Reference In", linestyle="-", zorder=-1, linewidth=1)
-        # self.stf_ax.plot(*self.meas, color="C1", label="Normalised Measurement In", linestyle="-", zorder=-1, linewidth=1)
+        self.stf_ax.plot(*self.best_stf, color="black", label="Current best STF (MS={0})".format(int(self.best_ms)),
+                         linestyle="-", linewidth=2, zorder=-1)
+        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF (MS={0})".format(int(self.initial_ms)),
+                         linestyle="-", linewidth=2)
+
         self.stf_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
 
-        # TODO only temporary, should have its own signal
-        self.best_ms_list = self.stf_queue.get()
-        self.update_best_ms_ax()
-
+    def collect_algorithm_queue_data(self):
+        """
+        Triggered after every iteration. Collects the data from the algorithm back-end.
+        """
+        # Collect the data
+        self.initial_stf = self.alg_queue.get()
+        self.initial_ms = self.alg_queue.get()
+        self.best_stf = self.alg_queue.get()
+        self.best_ms = self.alg_queue.get()
+        self.best_ms_list = self.alg_queue.get()
+        curr_population = self.alg_queue.get()
+        # deepcopy is needed because the filter chains are mutable and change between iterations
+        self.population_history.append(deepcopy(curr_population))
+    
     def start_bg_model_measurement(self):
         # Deactivate buttons
-        self.toggle_buttons_state()
+        self.toggle_buttons_state(False, False, False, False)
         # Pause the main stream
         self.main_stream_paused.set_state(True)
         time.sleep(0.5)
@@ -281,67 +273,170 @@ class Program(QWidget):
         self.bg_snippets = self.bg_model_queue.get()
         self.update_bg_model_ax()
         # Reactivate buttons
-        self.toggle_buttons_state()
-
-    def start_latency_measurement(self):
-        # Deactivate buttons
-        self.toggle_buttons_state()
-        self.latency_measurement = LatencyCalibration(self.latency_queue, self.ref_in_buffer, self.meas_in_buffer,
-                                                      self.main_sync_event, self.meas_sync_event)
-        self.latency_measurement.start()
-        self.latency_measurement.finished.connect(self.collect_latency_measurement)
-
-    def collect_latency_measurement(self):
-        self.latency_ref = self.latency_queue.get()
-        self.latency_meas = self.latency_queue.get()
-        self.update_latency_ax()
-
-        # Reactivate buttons
-        self.toggle_buttons_state()
+        self.toggle_buttons_state(True, True, True, True)
 
     def closeEvent(self, event):
         """
         Overrides superclass method.
-        Ensures streams exit nicely
+        Ensures streams exit nicely.
         """
         self.shutting_down.set_state(True)
         time.sleep(0.5)
         event.accept()
 
-    # TODO: EVERYTHING BELOW IS UNFINISHED
-    def random_filter_settings(self):
-        """
-        Toy function to simulate a change in EQ.
-        """
-        for i in range(len(self.live_chain.get_filters())):
-            fc, gain, q = Population.random_filter_params()
-            self.live_chain.set_filter_params(i, fc, gain, q)
-        self.update_filter_ax()
-
     def start_algorithm(self):
-        # Deactivate buttons
-        self.toggle_buttons_state()
-        self.alg_btn.setEnabled(True)
+        # Deactivate buttons except algorithm button
+        self.toggle_buttons_state(False, True, False, False)
         self.alg_btn.setText("Stop Algorithm")
         self.alg_btn.clicked.disconnect()
-        self.alg_btn.clicked.connect(lambda: self.algorithm_running.set_state(False))
-        # TODO Pass in start parameters here, like an initial population etc?
-
-        self.algorithm = Algorithm(self.stf_queue, self.ref_in_buffer, self.meas_in_buffer, self.main_sync_event,
+        self.alg_btn.clicked.connect(self.stop_algorithm)
+        self.algorithm_running.set_state(True)
+        
+        self.algorithm = Algorithm(self.alg_queue, self.ref_in_buffer, self.meas_in_buffer, self.main_sync_event,
                                    self.meas_sync_event, self.bg_model, self.live_chain, self.update_filter_ax_signal,
+                                   self.collect_algorithm_queue_data_signal, self.update_ms_iter_ax_signal,
                                    self.update_stf_ax_signal, self.algorithm_running)
         self.algorithm.start()
+        # Algorithm thread finishes when the user presses the Stop Algorithm-button
         self.algorithm.finished.connect(self.collect_algorithm)
-
-    def collect_algorithm(self):
-        # Reactivate buttons
-        self.alg_btn.setEnabled(False)
-        self.alg_btn.setText("Start Algorithm")
+    
+    def stop_algorithm(self):
+        """
+        Triggered when user clicks the Stop Algorithm-button.
+        """
+        self.toggle_buttons_state(False, False, False, False)
+        self.alg_btn.setText("Stopping Algorithm...")
         self.alg_btn.clicked.disconnect()
+        self.algorithm_running.set_state(False)
+        
+    def collect_algorithm(self):
+        """
+        Triggered when the algorithm thread has actually finished.
+        """
+        # Reactivate buttons
         self.alg_btn.clicked.connect(self.start_algorithm)
-        self.toggle_buttons_state()
+        self.toggle_buttons_state(True, True, True, True)
+        self.alg_btn.setText("Start Algorithm")
 
     def export_data(self):
-        # TODO: Need this functionality for saving data and later replotting.
+        # TODO: Need this functionality for saving data and later re-plotting.
         # Preferably a log of the whole program, saving everything. Not crucial at this stage.
-        pass
+        
+        file_path = QFileDialog.getSaveFileName(self, filter="Text Files (*.txt)")[0]
+        
+        if file_path == "":
+            return
+        
+        with open(file_path, 'w') as outfile:
+            # Save date and time
+            outfile.write("Exported at: {0}\n\n\n".format(time.strftime("%c")))
+
+            # Save parameter choices
+            outfile.write("/// PARAMETERS ///\n"
+                          "RATE = {0}\n"
+                          "BUFFER = {1}\n"
+                          "SNIPPET_LENGTH = {2}\n"
+                          "BACKGROUND_LENGTH = {3}\n"
+                          "MEAS_REF_LATENCY = {4}\n"
+                          "LATENCY_MEASUREMENT_LENGTH = {5}\n\n"
+                          
+                          "EXPORT_WAV = {6}\n"
+                          "F_LIMITS = {7}\n"
+                          "OCT_FRAC = {8}\n\n"
+                          
+                          "POP_SIZE = {9}\n"
+                          "NUM_FILTERS = {10}\n"
+                          "GAIN_LIMITS = {11}\n"
+                          "Q_LIMITS = {12}\n"
+                          "F_MODE = {13}\n\n"
+                          
+                          "PROP_PROMOTED = {14}\n"
+                          "PROP_RND = {15}\n\n\n"
+            
+                          .format(RATE, BUFFER, SNIPPET_LENGTH, BACKGROUND_LENGTH, MEAS_REF_LATENCY,
+                                  LATENCY_MEASUREMENT_LENGTH,
+                                  EXPORT_WAV, F_LIMITS, OCT_FRAC,
+                                  POP_SIZE, NUM_FILTERS, GAIN_LIMITS, Q_LIMITS, F_MODE,
+                                  PROP_PROMOTED, PROP_RND)
+                          )
+        
+            # Save background measurement
+            if self.bg_model:
+                snippets = ""
+                for i, (f, db) in enumerate(self.bg_snippets):
+                    snippets += "db_snippet_{0} = {1}\n".format(i, db)
+                    
+                outfile.write("/// BACKGROUND MODEL ///\n"
+                              "freq = {0}\n"
+                              "db_model = {1}\n"
+                              "{2}\n\n"
+                              .format(*self.bg_model, snippets))
+            
+            # Save initial MS and STF
+            outfile.write("/// INITIAL STF AND MS ///\n"
+                          "freq = {0}\n"
+                          "stf_init = {1}\n"
+                          "ms_init = {2}\n\n\n"
+                          .format(*self.initial_stf, self.initial_ms))
+            
+            # Save algorithm iteration data
+            w = "/// ALGORITHM ///\n\n"
+            for i, population in enumerate(self.population_history):
+                best_chain = sorted(population, key=lambda x: x.ms)[0]
+                w += "/// iteration: {0}, best.ms: {1}, best.id: {2}\n".format(i + 1, best_chain.ms, best_chain.id)
+                for chain in population:
+                    w += "chain_id_{0}:\nstf = {1}\nms = {2}\n".format(chain.id, chain.stf[1], chain.ms)
+                    w += "{0}\n\n".format(chain.get_chain_settings())
+                w += "\n\n"
+            outfile.write(w)
+    
+    # BELOW IS FUNCTIONALITY THAT IS NO LONGER NEEDED (OR AT LEAST NOT NEEDED AT PRESENT)
+    #
+    # def start_latency_measurement(self):
+    #     # Deactivate buttons
+    #     self.toggle_buttons_state()
+    #     self.latency_measurement = LatencyCalibration(self.latency_queue, self.ref_in_buffer, self.meas_in_buffer,
+    #                                                   self.main_sync_event, self.meas_sync_event)
+    #     self.latency_measurement.start()
+    #     self.latency_measurement.finished.connect(self.collect_latency_measurement)
+    #
+    # def collect_latency_measurement(self):
+    #     self.latency_ref = self.latency_queue.get()
+    #     self.latency_meas = self.latency_queue.get()
+    #     self.update_latency_ax()
+    #
+    #     # Reactivate buttons
+    #     self.toggle_buttons_state()
+    #
+    # def random_filter_settings(self):
+    #     """
+    #     Toy function to simulate a change in EQ.
+    #     """
+    #     for i in range(len(self.live_chain.get_filters())):
+    #         fc, gain, q = Population.random_filter_params()
+    #         self.live_chain.set_filter_params(i, fc, gain, q)
+    #     self.update_filter_ax()
+    #
+    # def update_latency_ax(self):
+    #     # Latency Measurement (to go in init)
+    #     self.latency_ax.set_title("Latency Measurement", fontsize=FONTSIZE_TITLES)
+    #     self.latency_ax.set_ylabel("Amplitude [a.u.]", fontsize=FONTSIZE_LABELS)
+    #     self.latency_ax.set_xlabel("Time [s]", fontsize=FONTSIZE_LABELS)
+    #     self.latency_ax.minorticks_on()
+    #     self.latency_ax.tick_params(labelsize=FONTSIZE_TICKS)
+    #     self.latency_ax.grid(which="major", linestyle="-", alpha=0.4)
+    #     self.latency_ax.grid(which="minor", linestyle="--", alpha=0.2)
+    #
+    #     # Remove all existing lines
+    #     self.latency_ax.lines = list()
+    #     # Plot latencies
+    #     self.latency_ax.plot(*self.latency_ref, color="C0", label="Reference In")
+    #     self.latency_ax.plot(*self.latency_meas, color="C1", label="Measurement In")
+    #     self.latency_ax.legend(fontsize=FONTSIZE_LEGENDS)
+    #
+    #     # Dynamically set axes limits
+    #     self.latency_ax.relim()
+    #     self.latency_ax.autoscale_view()
+    #     self.latency_ax.set_autoscale_on(True)
+    #
+    #     self.canvas.draw()
