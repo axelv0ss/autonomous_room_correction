@@ -5,40 +5,39 @@ Specify necessary parameters for the project.
 import pyaudio
 import numpy as np
 
+# Audio parameters
 RATE = 44100
 PA_FORMAT = pyaudio.paFloat32
 NP_FORMAT = np.float32
 BUFFER = 16384
 
 # Need to be multiples of BUFFER
-# SNIPPET_LENGTH = 2048 * 216  # 10.03s of audio for 2048-buffer
-# BACKGROUND_LENGTH = 2048 * 1296  # 60.19s of audio for 2048-buffer
-# BACKGROUND_LENGTH = 2048 * 216  # 60.19s of audio for 2048-buffer
-SNIPPET_LENGTH = 16384 * 10
-BACKGROUND_LENGTH = 16384 * 50
+# # DEV
+# SNIPPET_LENGTH = 16384 * 10
+# BACKGROUND_LENGTH = 16384 * 50
+# # TEST
+SNIPPET_LENGTH = 16384 * 27  # 10s of audio for 16384-buffer
+BACKGROUND_LENGTH = 16384 * 162
 
 # How much time (in seconds) that the meas_in stream is ahead of ref_in stream.
 # This parameter can be calibrated with help of the interface
 MEAS_REF_LATENCY = 0.085
 LATENCY_MEASUREMENT_LENGTH = 212992
 
-# Export wave files
+# Program parameters
 EXPORT_WAV = True
-
-F_LIMITS = [500, 10000]
+F_LIMITS = [40, 20000]
 OCT_FRAC = 1 / 24
 
 # For evolutionary algorithm
-POP_SIZE = 6
-NUM_FILTERS = 6
-GAIN_LIMITS = [-5, 0]
-Q_LIMITS = [0.5, 4]
-F_MODE = 500  # The mode for the triangular distribution to bias fc towards
+POP_SIZE = 10
+NUM_FILTERS = 5
+GAIN_LIMITS = [-5, 5]
+Q_LIMITS = [1, 4]
+F_MODE = 70  # The mode for the triangular distribution to bias fc towards
 
-PROP_PROMOTED = 0.5  # Proportion of chains promoted in each iteration
-PROP_RND = 0.25  # Proportion of random filters added in filter pool (for mutation)
-
-# PROB_MUTATION = 0.2
+PROP_PROMOTED = 0.3  # Proportion of chains promoted in each iteration
+PROP_RND = 0.5  # Proportion of random filters added in filter pool (for mutation)
 
 # To prevent signal clipping (dB)
 ATTENUATE_OUTPUT = -0
@@ -50,9 +49,9 @@ FONTSIZE_LEGENDS = 9
 FONTSIZE_TICKS = 9
 
 # Routing, audio device indices
-REF_IN_INDEX = 2
-MEAS_OUT_INDEX = 1
-MEAS_IN_INDEX = 0
+REF_IN_INDEX = 3  # Soundflower (2ch)
+MEAS_OUT_INDEX = 2  # Built-in Output
+MEAS_IN_INDEX = 2  # Built-in Microphone
 
 assert SNIPPET_LENGTH % BUFFER == 0, "SNIPPET_LENGTH must be an integer multiple of BUFFER"
 assert BACKGROUND_LENGTH % BUFFER == 0, "BACKGROUND_LENGTH must be an integer multiple of BUFFER"

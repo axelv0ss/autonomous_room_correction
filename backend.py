@@ -98,6 +98,8 @@ class PeakFilter(object):
 
 
 class FilterChain(object):
+    count = 0
+    
     def __init__(self, *filters):
         """
         *filters: Arbitrary number of filter objects, e.g. PeakFilter
@@ -111,6 +113,9 @@ class FilterChain(object):
 
         # Calculate initial conditions
         self.zi = [signal.lfilter_zi(*filt.get_b_a()) for filt in self.filters]
+
+        self.id = FilterChain.count
+        FilterChain.count += 1
 
     def filter_signal(self, data_in):
         """
@@ -340,6 +345,13 @@ class Population(object):
 
 
 class MainStream(QtCore.QThread):
+    """
+    This thread always runs continuously in the background (daemon).
+    Handles two streams of data:
+    * Reference in: The raw system audio (music) that is being played. Converts it to mono.
+    * Measurement out: The reference in data with the applied filter chain. This is what is being played out in the
+                       speakers
+    """
     def __init__(self, ref_in_buffer, meas_out_buffer, chain, bypass_chain, paused, shutting_down, main_sync_event):
         super().__init__()
         self.ref_in_buffer = ref_in_buffer
@@ -407,8 +419,12 @@ class MainStream(QtCore.QThread):
         # Write meas_out data to shared queue.
         # TODO Is it even necessary to write this data to a shared array??
         self.meas_out_buffer[:] = out_data[:]
-        assert (out_data <= 1).all(), "Output signal clipped! Max: {0}" \
-                                      .format(np.max(out_data))
+        # assert (out_data <= 1).all(), "Output signal clipped! Max: {0}" \
+        #                               .format(np.max(out_data))
+        if (out_data > 1).any():
+            print("WARNING: Output signal clipped! Max: {0}".format(np.max(out_data)))
+            print(out_data[out_data.argmax() - 5:out_data.argmax() + 6])
+            print()
 
         out_data = np.repeat(out_data, 2)                   # Convert to 2-channel audio for compatib. with stream
         out_bytes = out_data.astype(NP_FORMAT).tostring()     # Convert audio data back to bytes and return
@@ -419,6 +435,10 @@ class MainStream(QtCore.QThread):
 
 
 class MeasStream(QtCore.QThread):
+    """
+    This thread always runs continuously in the background (daemon).
+    Handles the measurement in data stream, i.e. what is being captured by the microphone.
+    """
     def __init__(self, meas_in_buffer, shutting_down, meas_sync_event):
         super().__init__()
         # self.program_shutdown = program_shutdown
@@ -505,7 +525,7 @@ class BackgroundModel(QtCore.QThread):
         Stops the main stream for quietness during background recording.
         """
         file_name = "BACKGROUND_REC.wav"
-        print("Recording {0}s from ref_in_buffer_queue ({1} export={2})..."
+        print("Recording {0}s from ref_in_buffer ({1} export={2})..."
               .format(round(BACKGROUND_LENGTH / RATE, 2), file_name, EXPORT_WAV))
 
         self.background_rec = np.zeros(BACKGROUND_LENGTH, dtype=NP_FORMAT)
@@ -620,6 +640,7 @@ class BackgroundModel(QtCore.QThread):
 class LatencyCalibration(QtCore.QThread):
     """
     Used to determine the MEAS_REF_LATENCY value to synchronise the ref_in and meas_in streams.
+    Currently not in use.
     """
     def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event):
         super().__init__()
@@ -676,7 +697,7 @@ class LatencyCalibration(QtCore.QThread):
 
 class Algorithm(QtCore.QThread):
     """
-    The evolutionary algorithm that runs in the background and continuously sends back values for plotting.
+    The evolutionary algorithm that runs in the background and continuously sends back data for plotting.
     """
     def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model,
                  live_chain, update_filter_ax_signal, update_stf_ax_signal, algorithm_running):
@@ -704,12 +725,13 @@ class Algorithm(QtCore.QThread):
 
         # Initialise the population
         self.population = Population(initial_ms)
-
+        iteration = 1
         # Iterate through every chain in the population
         while self.algorithm_running.get_state():
+            print("\n-------- ITERATION {0} ------------------------".format(iteration))
             for i, chain in enumerate(self.population.get_population()):
-                print("\nApplying chain {0}/{1}".format(i + 1, len(self.population.get_population())))
-                print(chain.get_chain_settings())
+                print("\nApplying chain {0}/{1}, id={2}".format(i + 1, len(self.population.get_population()), chain.id))
+                # print(chain.get_chain_settings())
                 self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
 
                 # Apply the current chain
@@ -722,7 +744,7 @@ class Algorithm(QtCore.QThread):
                 chain.set_stf_ms(stf, ms)
 
             best_chain = sorted(self.population.get_population(), key=lambda x: x.ms)[0]
-            print("\nBest MS: {0}".format(best_chain.ms))
+            print("\nBest MS: {0} (id={1})".format(best_chain.ms, best_chain.id))
             
             # self.population.calculate_avg_ms()
             self.population.save_best_ms()
@@ -735,6 +757,8 @@ class Algorithm(QtCore.QThread):
             self.sendback_queue.put(best_chain.ms)
             self.sendback_queue.put(self.population.best_ms_list)
             self.update_stf_ax_signal.emit()
+
+            iteration += 1
 
         self.live_chain.apply_chain_state(best_chain)
 
@@ -798,8 +822,8 @@ class Algorithm(QtCore.QThread):
         ref_in_rec = np.zeros(SNIPPET_LENGTH, dtype=NP_FORMAT)
         meas_in_rec = np.zeros(SNIPPET_LENGTH, dtype=NP_FORMAT)
 
-        # Use threading here to ensure we capture identical parts of the song
-        # Use events to control exactly when each recording starts
+        # Use threading here to ensure reference and measurement capture identical parts of the song
+        # Use events to control exactly when each recording starts (there's a slight delay when spawning threads)
         ref_in_start_event = threading.Event()
         meas_in_start_event = threading.Event()
 

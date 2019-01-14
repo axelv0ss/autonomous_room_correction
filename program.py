@@ -32,6 +32,9 @@ class Program(QWidget):
         self.init_streams()
 
     def init_shared_objects(self):
+        """
+        Initialises objects that are shared between the front-end and back-end processes.
+        """
         self.ref_in_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
         self.meas_out_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
         self.meas_in_buffer = np.zeros(BUFFER, dtype=NP_FORMAT)
@@ -44,12 +47,18 @@ class Program(QWidget):
         self.bg_model = None
 
     def init_queues(self):
+        """
+        Initialises the queues required to pass data from the back-end to the front-end for plotting.
+        """
         self.bg_model_queue = Queue()
         self.latency_queue = Queue()
         self.filter_queue = Queue()
         self.stf_queue = Queue()
 
     def init_live_chain(self):
+        """
+        Initialises the (initially neutral) filter chain applied to the measurement output signal.
+        """
         filters = list()
         for i in range(NUM_FILTERS):
             fc, gain, q = Population.random_filter_params()
@@ -57,6 +66,11 @@ class Program(QWidget):
         self.live_chain = FilterChain(*filters)
 
     def init_streams(self):
+        """
+        Initialises the main and measurement streams. The main stream is responsible for the reference in (unfiltered
+        system audio) and the processed measurement out audio, while the measurement stream is responsible for the
+        measurement in audio (what is picked up by the microphone).
+        """
         self.main_stream = MainStream(self.ref_in_buffer, self.meas_out_buffer, self.live_chain, self.bypass_live_chain,
                                       self.main_stream_paused, self.shutting_down, self.main_sync_event)
         self.main_stream.start()
