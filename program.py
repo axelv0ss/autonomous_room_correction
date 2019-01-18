@@ -200,6 +200,12 @@ class Program(QWidget):
     def update_ms_iter_ax(self):
         # Remove all existing lines
         self.ms_iter_ax.lines = list()
+        
+        # Plot all MS as scatter
+        for i, population in enumerate(self.population_history):
+            ms = [chain.ms for chain in population]
+            self.ms_iter_ax.plot([i + 1] * len(ms), ms, linestyle="", marker="o", color="black")
+        
         # Plot avg ms
         self.ms_iter_ax.plot(self.best_ms_list, color="C0", label="Best MS")
         self.ms_iter_ax.legend(fontsize=FONTSIZE_LEGENDS)
@@ -216,13 +222,13 @@ class Program(QWidget):
         self.filter_ax.lines = list()
         # Plot live_chain
         f, H = self.live_chain.get_chain_tf()
-        self.filter_ax.semilogx(f, convert_to_dbfs(H), label="Chain", linewidth=2, color="C0")
+        self.filter_ax.semilogx(f, convert_to_dbfs(H), label="Chain (id={0})".format(self.live_chain.id), linewidth=2, color="C0")
         # Plot individual filters
         for d in self.live_chain.get_all_filters_settings_tf():
             f, h = d["tf"]
-            label = d["settings"]
-            self.filter_ax.semilogx(f, convert_to_dbfs(h), label=label, linestyle="--", zorder=-1, linewidth=1)
-        # self.filter_ax.legend(fontsize=FONTSIZE_LEGENDS)
+            # label = d["settings"]
+            self.filter_ax.semilogx(f, convert_to_dbfs(h), linestyle="--", zorder=-1, linewidth=1)
+        self.filter_ax.legend(fontsize=FONTSIZE_LEGENDS)
 
         # Dynamically set axes limits
         self.filter_ax.relim()
@@ -347,17 +353,24 @@ class Program(QWidget):
                           "POP_SIZE = {9}\n"
                           "NUM_FILTERS = {10}\n"
                           "GAIN_LIMITS = {11}\n"
-                          "Q_LIMITS = {12}\n"
-                          "F_MODE = {13}\n\n"
+                          "Q_LIMITS = {12}\n\n"
                           
-                          "PROP_PROMOTED = {14}\n"
-                          "PROP_RND = {15}\n\n\n"
+                          "PROP_PROMOTED = {13}\n\n"
+                          
+                          "PROB_MUT = {14}\n"
+                          "STDEV_FC = {15}\n"
+                          "STDEV_GAIN = {16}\n"
+                          "STDEV_Q = {17}\n\n"
+            
+                          "PROP_RND = {18}\n\n\n"
             
                           .format(RATE, BUFFER, SNIPPET_LENGTH, BACKGROUND_LENGTH, MEAS_REF_LATENCY,
                                   LATENCY_MEASUREMENT_LENGTH,
                                   EXPORT_WAV, F_LIMITS, OCT_FRAC,
-                                  POP_SIZE, NUM_FILTERS, GAIN_LIMITS, Q_LIMITS, F_MODE,
-                                  PROP_PROMOTED, PROP_RND)
+                                  POP_SIZE, NUM_FILTERS, GAIN_LIMITS, Q_LIMITS,
+                                  PROP_PROMOTED,
+                                  PROB_MUT, STDEV_FC, STDEV_GAIN, STDEV_Q,
+                                  PROP_RND)
                           )
         
             # Save background measurement
@@ -389,6 +402,8 @@ class Program(QWidget):
                     w += "{0}\n\n".format(chain.get_chain_settings())
                 w += "\n\n"
             outfile.write(w)
+        
+        print("\nExported to {0}.".format(file_path))
     
     # BELOW IS FUNCTIONALITY THAT IS NO LONGER NEEDED (OR AT LEAST NOT NEEDED AT PRESENT)
     #

@@ -58,10 +58,16 @@ class PeakFilter(object):
         """
         Used by __init__() to set parameters of each filter
         """
+        if (fc is None) and (gain is None) and (q is None):
+            return
+        
         # Save new instance variables
-        self.fc = fc
-        self.gain = gain
-        self.q = q
+        if fc is not None:
+            self.fc = fc
+        if gain is not None:
+            self.gain = gain
+        if q is not None:
+            self.q = q
 
         # Frequencies declared as fractions of sampling rate
         f_frac = self.fc / RATE
@@ -105,7 +111,7 @@ class FilterChain(object):
         *filters: Arbitrary number of filter objects, e.g. PeakFilter
         """
         self.filters = filters
-
+        
         self.stf = None
         # TODO this should be none, only for debugging
         # self.ms = int(np.random.random()*1000)
@@ -116,6 +122,18 @@ class FilterChain(object):
 
         self.id = FilterChain.count
         FilterChain.count += 1
+    
+    def __eq__(self, other):
+        """
+        Required for removing duplicates in filter pool using set() function
+        """
+        return self.id == other.id
+    
+    def __hash__(self):
+        """
+        Required for removing duplicates in filter pool using set() function
+        """
+        return hash(("id", self.id))
 
     def filter_signal(self, data_in):
         """
@@ -150,6 +168,7 @@ class FilterChain(object):
         Takes in another chain objects and copies its settings
         """
         self.filters = chain.get_filters()
+        self.id = chain.id
 
         # Calculate initial conditions
         # self.zi = [signal.lfilter_zi(*filt.get_b_a()) for filt in self.filters]
@@ -230,24 +249,20 @@ class Population(object):
         """
         Generates a random set of filter parameters: fc, gain, q
         Respects the limits set in params.py
-        Biases fc towards F_MODE, being the mode of a triangular distribution
         """
         assert F_LIMITS[0] > 0, "The lower frequency limit must be positive"
         assert GAIN_LIMITS[1] >= 0, "The high gain limit must be non-negative"
 
         # For random frequency (log distribution between f_lo, f_hi)
-        # Generates a triangular distribution in log scale with a peak at mode_f
-        rand_mode = np.log2(F_MODE / F_LIMITS[0]) / np.log2(F_LIMITS[1] / F_LIMITS[0])
-        rand = np.random.triangular(0, rand_mode, 1)
+        alpha_fc = np.random.random() * np.log2(F_LIMITS[1] / F_LIMITS[0])  # Generate the exponent
+        fc = F_LIMITS[0] * 2 ** alpha_fc
 
-        alpha = rand * np.log2(F_LIMITS[1] / F_LIMITS[0])  # Generate the exponent
-        fc = F_LIMITS[0] * 2 ** alpha
-
-        # Linear distribution
+        # Linear distribution for gain (already in log-scale)
         gain = np.random.random() * (GAIN_LIMITS[1] - GAIN_LIMITS[0]) + GAIN_LIMITS[0]
 
-        # Linear distribution
-        q = np.random.random() * (Q_LIMITS[1] - Q_LIMITS[0]) + Q_LIMITS[0]
+        # Log (proportionate) distribution, by nature of Q-factor
+        alpha_q = np.random.random() * np.log2(Q_LIMITS[1] / Q_LIMITS[0])  # Generate the exponent
+        q = Q_LIMITS[0] * 2 ** alpha_q
 
         return fc, gain, q
 
@@ -260,68 +275,160 @@ class Population(object):
         Generate the same number of new solutions as the number of solutions terminated
         Pick random filters from the top performers
         """
-        print("Calculating new population...")
+        print("\nCalculating new population...")
         
+        # 1. Promote the best chains
         # Sort population by the chain's MS value
         self.population.sort(key=lambda chain: chain.ms)
         # Determine which chains get promoted
-        num_promoted = int(POP_SIZE * PROP_PROMOTED)
+        num_promoted = int(round(POP_SIZE * PROP_PROMOTED))
         promoted = self.population[:num_promoted]
 
         print("Num promoted: {0} ({1}% of {2})".format(num_promoted, 100 * PROP_PROMOTED, POP_SIZE))
 
-        # Generate a filter pool of all filters from the promoted chains
+        # 2. Generate a filter pool of all filters from the promoted chains
         filter_pool = list()
         for chain in promoted:
             filter_pool.extend(chain.filters)
-        
-        # Append random filters into filter pool for randomness/mutation
-        # TODO code mutation, not purely random
-        num_rnd = int(len(filter_pool) * PROP_RND)
+        print("Total number of filters currently in pool: {0}".format(len(filter_pool)))
+        # Remove duplicates
+        filter_pool = list(set(filter_pool))
+        print("Removed duplicates, new number of filters in pool: {0}".format(len(filter_pool)))
+
+        # 3. Append random filters into filter pool for randomness/mutation
+        num_rnd = int(round(len(filter_pool) * PROP_RND))
         for _ in range(num_rnd):
             filter_pool.append(PeakFilter(*self.random_filter_params()))
-        
-        print("Filter pool: {0} filters, {1} from random ({2}% of {3})"
-              .format(len(filter_pool), num_rnd, 100 * PROP_RND, len(filter_pool) - num_rnd))
-        
-        # Create the new filter chains
+        print("Added {0} random filters ({1}% of {2})"
+              .format(num_rnd, 100 * PROP_RND, len(filter_pool) - num_rnd))
+        print("{0} total number of filters currently in pool".format(len(filter_pool)))
+
+        # 4. Create the new filter chains
         num_new_chains = POP_SIZE - num_promoted
         new_chains = list()
         for _ in range(num_new_chains):
             chain = FilterChain(*random.sample(filter_pool, NUM_FILTERS))
             new_chains.append(chain)
+        print("Created {0} new chains from filter pool".format(num_new_chains))
+        
+        # 5. Mutation
+        # To keep track/print progress
+        num_fc_mut, num_gain_mut, num_q_mut = 0, 0, 0
+        num_filters_mut = 0
+        mutation_table = list()
+        
+        # Iterate through all individual filters and mutate
+        for chain in new_chains:
+            new_filters = list()
+            # This style of loop is required to mutate the chain.filters list
+            for filt in chain.get_filters():
+                fc, gain, q = filt.fc, filt.gain, filt.q
+                mutated = False
+                # Mutate fc
+                if np.random.random() < PROB_MUT:
+                    fc = self.mutate_fc(filt.fc)
+                    num_fc_mut += 1
+                    mutation_table.append(("fc", filt.fc, fc))
+                    mutated = True
+                # Mutate gain
+                if np.random.random() < PROB_MUT:
+                    gain = self.mutate_gain(filt.gain)
+                    num_gain_mut += 1
+                    mutation_table.append(("gain", filt.gain, gain))
+                    mutated = True
+                # Mutate Q
+                if np.random.random() < PROB_MUT:
+                    q = self.mutate_q(filt.q)
+                    num_q_mut += 1
+                    mutation_table.append(("Q", filt.q, q))
+                    mutated = True
+                
+                if mutated:
+                    new_filters.append(PeakFilter(fc, gain, q))
+                    num_filters_mut += 1
+                else:
+                    new_filters.append(filt)
             
-        print("Num new chains: {0} ({1} - {2})".format(num_new_chains, POP_SIZE, num_promoted))
-
+            assert len(chain.filters) == len(new_filters)
+            chain.filters = tuple(new_filters)
+            
+        print("Mutation results: num_filters_mut = {0}, num_fc = {1}, num_gain = {2}, num_q = {3}"
+              .format(num_filters_mut, num_fc_mut, num_gain_mut, num_q_mut))
+        
+        print("New population calculated!")
+        
+        print("\nMUTATION TABLE:")
+        print("%-10s%-15s%-15s" % ("param", "old", "new"))
+        print("-" * 32)
+        for param, old, new in mutation_table:
+            print("%-8s%-12f%-12f" % (param, old, new))
+            
         # Save the new population!
         # Do a random shuffle to remove bias of promoted and new_chains being
         # applied in different parts of the song. Shouldn't matter but just in case.
         # Lastly, reset the self.population list. We will create the new one.
         self.population = promoted + new_chains
         
-        print()
-        for chain in self.population:
-            for filt in chain.filters:
-                print(filt.id, end="\t")
-            print()
+        # print()
+        # for chain in self.population:
+        #     for filt in chain.filters:
+        #         print(filt.id, end="\t")
+        #     print()
             
         random.shuffle(self.population)
+    
+    def mutate_fc(self, fc_old):
+        """
+        Takes an old fc value and mutates it using a Guassian with standard deviation STDEV_FC.
+        Respects F_LIMITS. If the mutated value is outside of limits, return the limit.
+        """
+        factor_fc = np.random.normal(loc=0, scale=STDEV_FC)
         
-        # # Generate new chains by cross-breeding
-        # num_new_chains = POP_SIZE - len(promoted)
-        # new_chains = list()
-        # for _ in range(num_new_chains):
-        #     chain = FilterChain(*random.sample(filter_pool, NUM_FILTERS))
-        #     new_chains.append(chain)
-        #
-        #
-        # # Mutate all chains over all parameters (?)
-        # # TODO
-        # for chain in new_population:
-        #     for filt in chain.filters:
-        #         for param in [filt.fc, filt.gain, filt.q]:
-        #             if np.random.random() < PROB_MUTATION:
-        #                 pass
+        if factor_fc >= 0:
+            fc_new = fc_old * (factor_fc + 1)
+            if fc_new > F_LIMITS[1]:
+                fc_new = F_LIMITS[1]
+        
+        else:
+            fc_new = fc_old / (abs(factor_fc) + 1)
+            if fc_new < F_LIMITS[0]:
+                fc_new = F_LIMITS[0]
+        
+        return fc_new
+    
+    def mutate_gain(self, gain_old):
+        """
+        Takes an old gain value and mutates it using a Guassian with standard deviation STDEV_GAIN.
+        Respects GAIN_LIMITS. If the mutated value is outside of limits, return the limit.
+        """
+        factor_gain = np.random.normal(loc=0, scale=STDEV_GAIN)
+        gain_new = gain_old + factor_gain
+        
+        if gain_new > GAIN_LIMITS[1]:
+            gain_new = GAIN_LIMITS[1]
+        elif gain_new < GAIN_LIMITS[0]:
+            gain_new = GAIN_LIMITS[0]
+        
+        return gain_new
+
+    def mutate_q(self, q_old):
+        """
+        Takes an old q value and mutates it using a Guassian with standard deviation STDEV_Q.
+        Respects Q_LIMITS. If the mutated value is outside of limits, return the limit.
+        """
+        factor_q = np.random.normal(loc=0, scale=STDEV_Q)
+    
+        if factor_q >= 0:
+            q_new = q_old * (factor_q + 1)
+            if q_new > Q_LIMITS[1]:
+                q_new = Q_LIMITS[1]
+    
+        else:
+            q_new = q_old / (abs(factor_q) + 1)
+            if q_new < Q_LIMITS[0]:
+                q_new = Q_LIMITS[0]
+    
+        return q_new
     
     def save_best_ms(self):
         best_chain = sorted(self.population, key=lambda x: x.ms)[0]
@@ -735,10 +842,9 @@ class Algorithm(QtCore.QThread):
             for i, chain in enumerate(self.population.get_population()):
                 print("\nApplying chain {0}/{1}, id={2}".format(i + 1, len(self.population.get_population()), chain.id))
                 # print(chain.get_chain_settings())
+    
+                self.live_chain.apply_chain_state(chain)  # Apply the current chain
                 self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
-
-                # Apply the current chain
-                self.live_chain.apply_chain_state(chain)
 
                 # Measure STF and MS, and save as instance attribute of the chain
                 print("Measuring STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
@@ -747,7 +853,7 @@ class Algorithm(QtCore.QThread):
                 chain.set_stf_ms(stf, ms)
         
             best_chain = sorted(self.population.get_population(), key=lambda x: x.ms)[0]
-            print("\nBest MS: {0} (id={1})".format(best_chain.ms, best_chain.id))
+            print("\nIteration's best MS: {0} (id={1})".format(best_chain.ms, best_chain.id))
             self.population.save_best_ms()
             
             # Send back stuff
@@ -766,6 +872,7 @@ class Algorithm(QtCore.QThread):
             iteration += 1
 
         self.live_chain.apply_chain_state(best_chain)
+        self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
 
         # Finishing this run() function triggers any GUI listeners for the self.finished() flag
 
