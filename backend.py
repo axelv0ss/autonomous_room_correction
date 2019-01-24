@@ -271,9 +271,11 @@ class Population(object):
 
     def calculate_new_population(self):
         """
-        Termination if performing worse than the last element in self.avg_ms_list
-        Generate the same number of new solutions as the number of solutions terminated
-        Pick random filters from the top performers
+        1. Promote
+        2. Generate filter pool
+        3. Add random filters
+        4. Create new chains
+        5. Mutate filters
         """
         print("\nCalculating new population...")
         
@@ -358,7 +360,7 @@ class Population(object):
         print("New population calculated!")
         
         print("\nMUTATION TABLE:")
-        print("%-10s%-15s%-15s" % ("param", "old", "new"))
+        print("%-12s%-20s%-20s" % ("param", "old", "new"))
         print("-" * 32)
         for param, old, new in mutation_table:
             print("%-8s%-12f%-12f" % (param, old, new))
@@ -951,7 +953,7 @@ class Algorithm(QtCore.QThread):
         time.sleep(1)
         ref_in_start_event.set()
         time.sleep(MEAS_REF_LATENCY)
-        meas_in_start_event.set()
+        meas_in_start_event.set()  # TODO This arrangement means the latency can only be in multiples of BUFFER! Fix!
 
         ref_thread.join()
         meas_thread.join()

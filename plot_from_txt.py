@@ -2,7 +2,8 @@ from matplotlib import pyplot as plt
 import numpy as np
 from params import *
 
-path = "/Users/axel/Desktop/export_test.txt"
+path = "/Users/axel/Documents/_Coursework/Y4/MSci_project/_MSci/algorithm_results/" \
+       "230119_wb_centerListPos_pinkNoise/wb_centerListPos_pinkNoise_export.txt"
 # path = "/Users/axel/Desktop/test2.txt"
 
 
@@ -73,7 +74,7 @@ def plot_algorithm_progression(file_path):
             if "best.ms" in line:
                 best_ms.append(float(line.split("best.ms: ")[1].split(",")[0]))
     
-    plt.plot(range(len(best_ms)), best_ms)
+    plt.semilogy(range(len(best_ms)), best_ms)
     
     plt.title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
     plt.ylabel("Mean-Squared Error", fontsize=FONTSIZE_LABELS)
@@ -87,5 +88,11 @@ def plot_algorithm_progression(file_path):
     plt.show()
     
 
-plot_background(path)
+# plot_background(path)
 # plot_algorithm_progression(path)
+
+
+x = np.arange(0.01, 10, 0.01)
+y = -np.log(x)
+plt.semilogx(x, y)
+plt.show()
