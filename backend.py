@@ -38,6 +38,16 @@ class Flag(object):
         return self.state
 
 
+class TimeEvent(threading.Event):
+    """
+    yeet
+    A superclass of the treading.Event object which includes a timestamp since the last .set()
+    """
+    def __init__(self):
+        super().__init__()
+        pass
+
+
 class PeakFilter(object):
     count = 0
 
