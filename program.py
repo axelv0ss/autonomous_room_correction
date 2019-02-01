@@ -52,8 +52,8 @@ class Program(QWidget):
         self.shutting_down = Flag(False)
         self.main_stream_paused = Flag(False)
         self.algorithm_running = Flag(False)
-        self.main_sync_event = threading.Event()  # Acts as a clock for synchronised recording
-        self.meas_sync_event = threading.Event()  # Acts as a clock for synchronised recording
+        self.main_sync_event = TimedEvent()  # Acts as a clock for synchronised recording
+        self.meas_sync_event = TimedEvent()  # Acts as a clock for synchronised recording
         self.bg_model = None
 
     def init_queues(self):

@@ -3,7 +3,7 @@ from params import *
 from scipy import signal
 import threading
 from PyQt5 import QtCore
-import queue
+# import queue
 import itertools
 import random
 
@@ -38,14 +38,23 @@ class Flag(object):
         return self.state
 
 
-class TimeEvent(threading.Event):
+class TimedEvent(threading.Event):
     """
     yeet
-    A superclass of the treading.Event object which includes a timestamp since the last .set()
+    
+    A superclass of the treading.Event object with method to return a timestamp since the last .set()
     """
     def __init__(self):
         super().__init__()
-        pass
+        self.t1 = time.time()
+    
+    def set(self):
+        super().set()
+        self.t1 = time.time()
+    
+    def get_dt(self):
+        t2 = time.time()
+        return t2 - self.t1
 
 
 class PeakFilter(object):
@@ -648,7 +657,7 @@ class BackgroundModel(QtCore.QThread):
               .format(round(BACKGROUND_LENGTH / RATE, 2), file_name, EXPORT_WAV))
 
         self.background_rec = np.zeros(BACKGROUND_LENGTH, dtype=NP_FORMAT)
-        start_event = threading.Event()
+        start_event = TimedEvent()
         start_event.set()
         _record(self.meas_in_buffer, self.background_rec, self.meas_sync_event, start_event)
 
@@ -785,8 +794,8 @@ class LatencyCalibration(QtCore.QThread):
 
         # Use threading here to ensure we capture identical parts of the song
         # Use events to control exactly when each recording starts
-        ref_in_start_event = threading.Event()
-        meas_in_start_event = threading.Event()
+        ref_in_start_event = TimedEvent()
+        meas_in_start_event = TimedEvent()
 
         ref_thread = threading.Thread(target=_record, args=(self.ref_in_buffer, ref_in_rec, self.main_sync_event,
                                                             ref_in_start_event))
@@ -857,7 +866,9 @@ class Algorithm(QtCore.QThread):
     
                 self.live_chain.apply_chain_state(chain)  # Apply the current chain
                 self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
-
+                
+                # TODO
+                # time.sleep(0.5)  # Delay to prevent VHOOFH from affecting recordings
                 # Measure STF and MS, and save as instance attribute of the chain
                 print("Measuring STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
                 stf, ms = self.measure_stf_ms(verbose=False)
@@ -948,8 +959,8 @@ class Algorithm(QtCore.QThread):
 
         # Use threading here to ensure reference and measurement capture identical parts of the song
         # Use events to control exactly when each recording starts (there's a slight delay when spawning threads)
-        ref_in_start_event = threading.Event()
-        meas_in_start_event = threading.Event()
+        ref_in_start_event = TimedEvent()
+        meas_in_start_event = TimedEvent()
 
         ref_thread = threading.Thread(target=_record, args=(self.ref_in_buffer, ref_in_rec, self.main_sync_event,
                                                             ref_in_start_event))
@@ -1131,22 +1142,37 @@ def _record(bfr_array, rec_array, stream_sync_event, start_event):
     Records into rec_array from bfr_array.
     Takes values from the buffer and puts them sequentially in the rec array.
     stream_sync_event: acts as a clock to ensure the buffer does not get written more than once,
-    but synchronises with the stream frequency.
+    but instead synchronises with the stream frequency.
     start_event: to ensure synchronised recording for multiple threads
     """
     time.sleep(0.5)  # Wait to ensure buffer is full before beginning recording
-    assert len(rec_array) % len(bfr_array) == 0, \
-        "The recording array length needs to be an integer multiple of the buffer size"
-
-    num_iters = int(len(rec_array) / len(bfr_array))
-
+    # assert len(rec_array) % len(bfr_array) == 0, \
+    #     "The recording array length needs to be an integer multiple of the buffer size"
+    
     start_event.wait()
-
-    for i in range(num_iters):
-        stream_sync_event.wait()  # This waits until the buffer is full, then fetches it
-        rec_array[i * BUFFER:(i + 1) * BUFFER] = bfr_array[:]  # Record the audio to the array
+    # Pick a buffer sample offset with an upper limit of BUFFER.
+    sample_offset = min(BUFFER - int(stream_sync_event.get_dt() * RATE), BUFFER)
+    i = sample_offset
+    
+    if i > 0:
+        # print(0, i)
+        rec_array[:i] = bfr_array[-i:]
         stream_sync_event.clear()  # Clears the flag and waits for the stream to set it again
-
+    while i < sample_offset + ((len(rec_array) - sample_offset) // BUFFER) * BUFFER:
+        # print(i, i + BUFFER)
+        stream_sync_event.wait()  # This waits until the buffer is updated, then fetches it
+        rec_array[i:i + BUFFER] = bfr_array[:]
+        i += BUFFER
+        stream_sync_event.clear()  # Clears the flag and waits for the stream to set it again
+    if i < len(rec_array):
+        # print(i, len(rec_array))
+        stream_sync_event.wait()  # This waits until the buffer is full, then fetches it
+        # print(len(rec_array[i:]))
+        # print(len(bfr_array[:len(rec_array) - i]))
+        rec_array[i:] = bfr_array[:len(rec_array) - i]
+    
+    # print("Rec array:\n{0}".format(rec_array))
+    
 
 def fourier_transform(y_td):
     """
