@@ -46,15 +46,13 @@ class TimedEvent(threading.Event):
     """
     def __init__(self):
         super().__init__()
-        self.t1 = time.time()
     
     def set(self):
         super().set()
-        self.t1 = time.time()
+        self.last_set = time.time()
     
     def get_dt(self):
-        t2 = time.time()
-        return t2 - self.t1
+        return time.time() - self.last_set
 
 
 class PeakFilter(object):
@@ -1151,16 +1149,32 @@ def _record(bfr_array, rec_array, stream_sync_event, start_event):
     
     start_event.wait()
     # Pick a buffer sample offset with an upper limit of BUFFER.
-    sample_offset = min(BUFFER - int(stream_sync_event.get_dt() * RATE), BUFFER)
+    dt = stream_sync_event.get_dt()
+    
+    # Need a maximum value for sample offset, cannot look back further than a buffer
+    if int(dt * RATE) > BUFFER:
+        sample_offset = BUFFER
+        print("WARNING: Buffer took longer than expected to update")
+    else:
+        sample_offset = BUFFER - int(dt * RATE)
+    # print("dt * RATE = {0}".format(dt * RATE))
+    
+    """
+    if sample_offset < 0
+    means that dt * RATE > BUFFER
+    means that the buffer took longer than normal to update
+    """
     i = sample_offset
     
     if i > 0:
         # print(0, i)
         rec_array[:i] = bfr_array[-i:]
+        # print("rec_array[:{0}]".format(i))
         stream_sync_event.clear()  # Clears the flag and waits for the stream to set it again
     while i < sample_offset + ((len(rec_array) - sample_offset) // BUFFER) * BUFFER:
         # print(i, i + BUFFER)
         stream_sync_event.wait()  # This waits until the buffer is updated, then fetches it
+        # print("rec_array[{0}:{1}], len(bfr_array[:]={2}".format(i, i + BUFFER, len(bfr_array)))
         rec_array[i:i + BUFFER] = bfr_array[:]
         i += BUFFER
         stream_sync_event.clear()  # Clears the flag and waits for the stream to set it again
@@ -1170,6 +1184,7 @@ def _record(bfr_array, rec_array, stream_sync_event, start_event):
         # print(len(rec_array[i:]))
         # print(len(bfr_array[:len(rec_array) - i]))
         rec_array[i:] = bfr_array[:len(rec_array) - i]
+        # print("rec_array[i:]".format(i))
     
     # print("Rec array:\n{0}".format(rec_array))
     

@@ -280,6 +280,7 @@ class Program(QWidget):
         self.update_bg_model_ax()
         # Reactivate buttons
         self.toggle_buttons_state(True, True, True, True)
+        # self.wait_for_bg.set()
 
     def closeEvent(self, event):
         """
@@ -291,6 +292,14 @@ class Program(QWidget):
         event.accept()
 
     def start_algorithm(self):
+        # self.wait_for_bg = threading.Event()
+        # self.wait_for_bg.clear()
+        print("\nYou get 20 seconds to GTFO...")
+        time.sleep(20)
+        # if self.bg_model is None:
+        #     self.start_bg_model_measurement()
+        # self.wait_for_bg.wait()
+        # time.sleep(1)
         # Deactivate buttons except algorithm button
         self.toggle_buttons_state(False, True, False, False)
         self.alg_btn.setText("Stop Algorithm")

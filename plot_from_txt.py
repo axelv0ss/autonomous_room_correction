@@ -1,9 +1,10 @@
 from matplotlib import pyplot as plt
 import numpy as np
 from params import *
+import ast
 
 path = "/Users/axel/Documents/_Coursework/Y4/MSci_project/_MSci/algorithm_results/" \
-       "230119_wb_centerListPos_pinkNoise/wb_centerListPos_pinkNoise_export.txt"
+       "010219_wb_centerListPos_ChasingForeverLoop/010219_wb_centerListPos_ChasingForeverLoop_export.txt"
 # path = "/Users/axel/Desktop/test2.txt"
 
 
@@ -74,7 +75,7 @@ def plot_algorithm_progression(file_path):
             if "best.ms" in line:
                 best_ms.append(float(line.split("best.ms: ")[1].split(",")[0]))
     
-    plt.semilogy(range(len(best_ms)), best_ms)
+    plt.plot(range(len(best_ms)), best_ms)
     
     plt.title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
     plt.ylabel("Mean-Squared Error", fontsize=FONTSIZE_LABELS)
@@ -86,13 +87,104 @@ def plot_algorithm_progression(file_path):
     plt.grid(which="minor", linestyle="--", alpha=0.2)
     
     plt.show()
+
+
+def plot_layman_algprog(file_path):
+    with open(file_path, "r") as infile:
+        for line in infile:
+            if "ms_init" in line:
+                best_ms = [float(line.split(" = ")[1])]
+            if "best.ms" in line:
+                best_ms.append(float(line.split("best.ms: ")[1].split(",")[0]))
     
+    x = list(range(0, len(best_ms)*100, 100))
+    plt.plot(x, best_ms)
+    
+    # plt.title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
+    plt.ylabel("Mean-Squared Error", fontsize=FONTSIZE_LABELS*1.5)
+    plt.xlabel("Time (s)", fontsize=FONTSIZE_LABELS*1.5)
+    
+    plt.minorticks_on()
+    plt.tick_params(labelsize=FONTSIZE_TICKS*1.5)
+    plt.grid(which="major", linestyle="-", alpha=0.4)
+    plt.grid(which="minor", linestyle="--", alpha=0.2)
+    
+    plt.show()
 
+
+def plot_layman(file_path):
+    f, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5))
+    
+    ENLARGE = 1.2
+    
+    freq = get_array(file_path, "freq")
+    stf_init = get_array(file_path, "stf_init")
+    
+    ax1.semilogx(freq, stf_init, label="Initial Transfer Function", color="black")
+    
+    # plt.title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
+    ax1.set_ylabel("Magnitude (dB)", fontsize=FONTSIZE_LABELS * ENLARGE)
+    ax1.set_xlabel("Frequency (Hz)", fontsize=FONTSIZE_LABELS * ENLARGE)
+    
+    ax1.minorticks_on()
+    ax1.tick_params(labelsize=FONTSIZE_TICKS * ENLARGE)
+    ax1.grid(which="major", linestyle="-", alpha=0.4)
+    ax1.grid(which="minor", linestyle="--", alpha=0.2)
+    
+    with open(file_path, "r") as infile:
+        for line in infile:
+            if "ms_init" in line:
+                best_ms = [float(line.split(" = ")[1])]
+            if "best.ms" in line:
+                best_ms.append(float(line.split("best.ms: ")[1].split(",")[0]))
+
+    x = list(range(0, len(best_ms) * 100, 100))
+    ax2.plot(x, best_ms)
+
+    # plt.title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
+    ax2.set_ylabel("Mean-Squared Error", fontsize=FONTSIZE_LABELS)
+    ax2.set_xlabel("Time (s)", fontsize=FONTSIZE_LABELS)
+
+    ax2.minorticks_on()
+    ax2.tick_params(labelsize=FONTSIZE_TICKS)
+    ax2.grid(which="major", linestyle="-", alpha=0.4)
+    ax2.grid(which="minor", linestyle="--", alpha=0.2)
+    
+    plt.show()
+
+
+def plot_efp(file_path):
+    with open(file_path, "r") as infile:
+        for line in infile:
+            if "ms_init" in line:
+                best_ms = [float(line.split(" = ")[1])]
+            if "best.ms" in line:
+                best_ms.append(float(line.split("best.ms: ")[1].split(",")[0]))
+    
+    f, ax = plt.subplots()
+    
+    ax.plot(range(len(best_ms)), best_ms, linewidth=3)
+    
+    # plt.title("Sound Improvement", fontsize=FONTSIZE_TITLES)
+    plt.ylabel("Room Colouration", fontsize=FONTSIZE_LABELS*2)
+    plt.xlabel("Time", fontsize=FONTSIZE_LABELS*2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    
+    # plt.minorticks_on()
+    # plt.tick_params(labelsize=FONTSIZE_TICKS)
+    plt.xticks([])
+    plt.yticks([])
+    # plt.grid(which="major", linestyle="-", alpha=0.4)
+    # plt.grid(which="minor", linestyle="--", alpha=0.2)
+    
+    plt.show()
+
+plot_layman(path)
 # plot_background(path)
-# plot_algorithm_progression(path)
+# plot_efp(path)
 
-
-x = np.arange(0.01, 10, 0.01)
-y = -np.log(x)
-plt.semilogx(x, y)
-plt.show()
+# x = np.arange(0.01, 10, 0.01)
+# y = -np.log(x)
+# plt.semilogx(x, y)
+# plt.show()
