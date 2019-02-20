@@ -200,14 +200,30 @@ class Program(QWidget):
     def update_ms_iter_ax(self):
         # Remove all existing lines
         self.ms_iter_ax.lines = list()
-        
-        # Plot all MS as scatter
+        ms_r, ms_p, ms_cm = list(), list(), list()
+        iter_r, iter_p, iter_cm = list(), list(), list()
+        # Plot all MS as scatter, colour coded
         for i, population in enumerate(self.population_history):
-            ms = [chain.ms for chain in population]
-            self.ms_iter_ax.plot([i + 1] * len(ms), ms, linestyle="", marker="o", color="black")
+            for chain in population:
+                if chain.kind == "r":
+                    ms_r.append(chain.ms)
+                    iter_r.append(i + 1)
+                elif chain.kind == "p":
+                    ms_p.append(chain.ms)
+                    iter_p.append(i + 1)
+                elif chain.kind == "c":
+                    ms_cm.append(chain.ms)
+                    iter_cm.append(i + 1)
+                elif chain.kind == "m":
+                    ms_cm.append(chain.ms)
+                    iter_cm.append(i + 1)
+
+        self.ms_iter_ax.plot(iter_r, ms_r, linestyle="", marker="o", color="C0", label="Random")
+        self.ms_iter_ax.plot(iter_p, ms_p, linestyle="", marker="o", color="C1", label="Promoted")
+        self.ms_iter_ax.plot(iter_cm, ms_cm, linestyle="", marker="o", color="C2", label="Crossover/Mutated")
         
-        # Plot avg ms
-        self.ms_iter_ax.plot(self.best_ms_list, color="C0", label="Best MS")
+        # Plot best ms
+        self.ms_iter_ax.plot(self.best_ms_list, color="black", label="Best MS")
         self.ms_iter_ax.legend(fontsize=FONTSIZE_LEGENDS)
 
         # Dynamically set axes limits
@@ -334,9 +350,6 @@ class Program(QWidget):
         self.alg_btn.setText("Start Algorithm")
 
     def export_data(self):
-        # TODO: Need this functionality for saving data and later re-plotting.
-        # Preferably a log of the whole program, saving everything. Not crucial at this stage.
-        
         file_path = QFileDialog.getSaveFileName(self, filter="Text Files (*.txt)")[0]
         
         if file_path == "":
@@ -405,9 +418,11 @@ class Program(QWidget):
             w = "/// ALGORITHM ///\n\n"
             for i, population in enumerate(self.population_history):
                 best_chain = sorted(population, key=lambda x: x.ms)[0]
-                w += "/// iteration: {0}, best.ms: {1}, best.id: {2}\n".format(i + 1, best_chain.ms, best_chain.id)
+                w += "/// iteration: {0}, best.ms: {1}, best.id: {2}, best.kind = {3}\n"\
+                     .format(i + 1, best_chain.ms, best_chain.id, best_chain.kind)
                 for chain in population:
-                    w += "chain_id_{0}:\nstf = {1}\nms = {2}\n".format(chain.id, chain.stf[1], chain.ms)
+                    w += "chain_id_{0}:\nstf = {1}\nms = {2}\nkind = {3}\n"\
+                         .format(chain.id, chain.stf[1], chain.ms, chain.kind)
                     w += "{0}\n\n".format(chain.get_chain_settings())
                 w += "\n\n"
             outfile.write(w)

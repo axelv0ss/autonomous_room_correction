@@ -123,11 +123,13 @@ class PeakFilter(object):
 class FilterChain(object):
     count = 0
     
-    def __init__(self, *filters):
+    def __init__(self, *filters, kind="r"):
         """
         *filters: Arbitrary number of filter objects, e.g. PeakFilter
+        kind: can be "r", "p", "c", "m" for random, promoted, crossover, mutated.
         """
         self.filters = filters
+        self.kind = kind
         
         self.stf = None
         # TODO this should be none, only for debugging
@@ -302,6 +304,9 @@ class Population(object):
         # Determine which chains get promoted
         num_promoted = int(round(POP_SIZE * PROP_PROMOTED))
         promoted = self.population[:num_promoted]
+        # Change the kind of all promoted chains to be p
+        for i in range(len(promoted)):
+            promoted[i].kind = "p"
 
         print("Num promoted: {0} ({1}% of {2})".format(num_promoted, 100 * PROP_PROMOTED, POP_SIZE))
 
@@ -326,7 +331,7 @@ class Population(object):
         num_new_chains = POP_SIZE - num_promoted
         new_chains = list()
         for _ in range(num_new_chains):
-            chain = FilterChain(*random.sample(filter_pool, NUM_FILTERS))
+            chain = FilterChain(*random.sample(filter_pool, NUM_FILTERS), kind="c")
             new_chains.append(chain)
         print("Created {0} new chains from filter pool".format(num_new_chains))
         
@@ -339,6 +344,7 @@ class Population(object):
         # Iterate through all individual filters and mutate
         for chain in new_chains:
             new_filters = list()
+            chain_kind = "c"
             # This style of loop is required to mutate the chain.filters list
             for filt in chain.get_filters():
                 fc, gain, q = filt.fc, filt.gain, filt.q
@@ -365,11 +371,13 @@ class Population(object):
                 if mutated:
                     new_filters.append(PeakFilter(fc, gain, q))
                     num_filters_mut += 1
+                    chain_kind = "m"
                 else:
                     new_filters.append(filt)
             
             assert len(chain.filters) == len(new_filters)
             chain.filters = tuple(new_filters)
+            chain.kind = chain_kind
             
         print("Mutation results: num_filters_mut = {0}, num_fc = {1}, num_gain = {2}, num_q = {3}"
               .format(num_filters_mut, num_fc_mut, num_gain_mut, num_q_mut))
@@ -394,7 +402,7 @@ class Population(object):
         #         print(filt.id, end="\t")
         #     print()
             
-        random.shuffle(self.population)
+        # random.shuffle(self.population)
     
     def mutate_fc(self, fc_old):
         """
@@ -859,14 +867,15 @@ class Algorithm(QtCore.QThread):
         while self.algorithm_running.get_state():
             print("\n-------- ITERATION {0} ------------------------".format(iteration))
             for i, chain in enumerate(self.population.get_population()):
-                print("\nApplying chain {0}/{1}, id={2}".format(i + 1, len(self.population.get_population()), chain.id))
+                print("\nApplying chain {0}/{1}, id={2}, kind={3}".format(i + 1, len(self.population.get_population()),
+                                                                          chain.id, chain.kind))
                 # print(chain.get_chain_settings())
     
                 self.live_chain.apply_chain_state(chain)  # Apply the current chain
                 self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
                 
                 # TODO
-                # time.sleep(0.5)  # Delay to prevent VHOOFH from affecting recordings
+                time.sleep(0.5)  # Delay to prevent VHOOFH from affecting recordings
                 # Measure STF and MS, and save as instance attribute of the chain
                 print("Measuring STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
                 stf, ms = self.measure_stf_ms(verbose=False)
