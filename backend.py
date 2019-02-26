@@ -133,8 +133,7 @@ class FilterChain(object):
         
         self.stf = None
         # TODO this should be none, only for debugging
-        # self.ms = int(np.random.random()*1000)
-        self.ms = None
+        self.fitness = None
 
         # Calculate initial conditions
         self.zi = [signal.lfilter_zi(*filt.get_b_a()) for filt in self.filters]
@@ -175,9 +174,9 @@ class FilterChain(object):
         """
         self.filters[i].set_params(fc, gain, q)
 
-    def set_stf_ms(self, stf, ms):
+    def set_stf_fitness(self, stf, fitness):
         self.stf = stf
-        self.ms = ms
+        self.fitness = fitness
 
     def get_filters(self):
         return self.filters[:]
@@ -227,7 +226,7 @@ class FilterChain(object):
         return out
 
     def get_stf_tf(self):
-        return self.stf[:], self.ms
+        return self.stf[:], self.fitness
 
 
 class Population(object):
@@ -236,10 +235,10 @@ class Population(object):
     Initialisation -> Evaluation -> Terminate? -> Selection -> Variation
     """
 
-    def __init__(self, initial_ms):
+    def __init__(self, initial_fitness):
         """
-        initial_ms: Initial ms value without any filters applied to use as a
-                     termination criterion in the first iteration.
+        initial_fitness: Initial fitness value without any filters applied to use as a
+                         termination criterion in the first iteration.
 
         Uses global parameters:
         POP_SIZE      The size of the population.
@@ -249,8 +248,7 @@ class Population(object):
         Q_LIMITS
         """
         self.population = list()  # Will contain FilterChain objects
-        # self.avg_ms_list = [initial_ms]
-        self.best_ms_list = [initial_ms]
+        self.best_fitness_list = [initial_fitness]
         self.generate_initial_population()
 
     def generate_initial_population(self):
@@ -299,12 +297,12 @@ class Population(object):
         print("\nCalculating new population...")
         
         # 1. Promote the best chains
-        # Sort population by the chain's MS value
-        self.population.sort(key=lambda chain: chain.ms)
+        # Sort population by the chain's fitness value
+        self.population.sort(key=lambda chain: chain.fitness)
         # Determine which chains get promoted
         num_promoted = int(round(POP_SIZE * PROP_PROMOTED))
         promoted = self.population[:num_promoted]
-        # Change the kind of all promoted chains to be p
+        # Change the kind of all promoted chains to be p (for promoted)
         for i in range(len(promoted)):
             promoted[i].kind = "p"
 
@@ -457,9 +455,9 @@ class Population(object):
     
         return q_new
     
-    def save_best_ms(self):
-        best_chain = sorted(self.population, key=lambda x: x.ms)[0]
-        self.best_ms_list.append(best_chain.ms)
+    def save_best_fitness(self):
+        best_chain = sorted(self.population, key=lambda x: x.fitness)[0]
+        self.best_fitness_list.append(best_chain.fitness)
     
     # def calculate_avg_ms(self):
     #     """
@@ -475,7 +473,7 @@ class Population(object):
     #         print()
     #         print()
     #
-    #     print("Current average MS: {0}".format(avg), end="\n")
+    #     print("Current average fitness: {0}".format(avg), end="\n")
 
 
 class MainStream(QtCore.QThread):
@@ -834,8 +832,8 @@ class Algorithm(QtCore.QThread):
     The evolutionary algorithm that runs in the background and continuously sends back data for plotting.
     """
     def __init__(self, sendback_queue, ref_in_buffer, meas_in_buffer, main_sync_event, meas_sync_event, bg_model,
-                 live_chain, update_filter_ax_signal, collect_algorithm_queue_data_signal, update_ms_iter_ax_signal,
-                 update_stf_ax_signal, algorithm_running):
+                 live_chain, update_filter_ax_signal, collect_algorithm_queue_data_signal,
+                 update_fitness_iter_ax_signal, update_stf_ax_signal, algorithm_running):
         super().__init__()
         self.sendback_queue = sendback_queue
         self.ref_in_buffer = ref_in_buffer
@@ -847,21 +845,19 @@ class Algorithm(QtCore.QThread):
 
         self.population = None
         self.update_filter_ax_signal = update_filter_ax_signal
-        self.update_ms_iter_ax_signal = update_ms_iter_ax_signal
+        self.update_fitness_iter_ax_signal = update_fitness_iter_ax_signal
         self.collect_algorithm_queue_data_signal = collect_algorithm_queue_data_signal
         self.update_stf_ax_signal = update_stf_ax_signal
         self.algorithm_running = algorithm_running
-        # self.stf = None
-        # self.ms = None
 
     def run(self):
         # Measure initial STF
         print("\nMeasuring initial STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
-        initial_stf, initial_ms = self.measure_stf_ms(verbose=False)
-        print("Calculated initial MS: {0}".format(initial_ms))
+        initial_stf, initial_fitness = self.measure_stf_fitness(verbose=False)
+        print("Calculated initial fitness: {0}".format(initial_fitness))
 
         # Initialise the population
-        self.population = Population(initial_ms)
+        self.population = Population(initial_fitness)
         iteration = 1
         # Iterate through every chain in the population
         while self.algorithm_running.get_state():
@@ -876,26 +872,26 @@ class Algorithm(QtCore.QThread):
                 
                 # TODO
                 time.sleep(0.5)  # Delay to prevent VHOOFH from affecting recordings
-                # Measure STF and MS, and save as instance attribute of the chain
+                # Measure STF and fitness, and save as instance attribute of the chain
                 print("Measuring STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
-                stf, ms = self.measure_stf_ms(verbose=False)
-                print("Calculated MS: {0}".format(ms))
-                chain.set_stf_ms(stf, ms)
+                stf, fitness = self.measure_stf_fitness(verbose=False)
+                print("Calculated fitness: {0}".format(fitness))
+                chain.set_stf_fitness(stf, fitness)
         
-            best_chain = sorted(self.population.get_population(), key=lambda x: x.ms)[0]
-            print("\nIteration's best MS: {0} (id={1})".format(best_chain.ms, best_chain.id))
-            self.population.save_best_ms()
+            best_chain = sorted(self.population.get_population(), key=lambda x: x.fitness)[0]
+            print("\nIteration's best fitness: {0} (id={1})".format(best_chain.fitness, best_chain.id))
+            self.population.save_best_fitness()
             
             # Send back stuff
             self.sendback_queue.put(initial_stf)
-            self.sendback_queue.put(initial_ms)
+            self.sendback_queue.put(initial_fitness)
             self.sendback_queue.put(best_chain.stf)
-            self.sendback_queue.put(best_chain.ms)
-            self.sendback_queue.put(self.population.best_ms_list)
+            self.sendback_queue.put(best_chain.fitness)
+            self.sendback_queue.put(self.population.best_fitness_list)
             self.sendback_queue.put(self.population.get_population())
             
             self.collect_algorithm_queue_data_signal.emit()  # Trigger collection of algorithm data from sendback_queue
-            self.update_ms_iter_ax_signal.emit()  # Trigger updating the algorithm progression plot
+            self.update_fitness_iter_ax_signal.emit()  # Trigger updating the algorithm progression plot
             self.update_stf_ax_signal.emit()  # Trigger updating the STF plot
             
             self.population.calculate_new_population()
@@ -906,10 +902,10 @@ class Algorithm(QtCore.QThread):
 
         # Finishing this run() function triggers any GUI listeners for the self.finished() flag
 
-    def measure_stf_ms(self, verbose=True):
+    def measure_stf_fitness(self, verbose=True):
         """
-        Measures the STF (System Transfer Function) and its associated Mean-Squared value.
-        Returns: stf (x, y arrays), ms (float)
+        Measures the STF (System Transfer Function) and its associated fitness value.
+        Returns: stf (x, y arrays), fitness (float)
         """
         if verbose: print("\nMeasuring STF:")
 
@@ -940,12 +936,12 @@ class Algorithm(QtCore.QThread):
         ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth = self.normalise_snippets_fd(ref_in_snippet_fd_smooth,
                                                                                          meas_in_snippet_fd_smooth, verbose)
         stf = self.calculate_stf(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth, verbose)
-        ms = self.calculate_ms(stf, verbose)
+        fitness = self.calculate_fitness(stf, verbose)
 
-        # Return the calculated STF and MS value
-        if verbose: print("STF and MS calculated!")
+        # Return the calculated STF and fitness value
+        if verbose: print("STF and fitness calculated!")
 
-        return stf, ms
+        return stf, fitness
 
     def record_snippets(self, verbose=True):
         """
@@ -1133,15 +1129,14 @@ class Algorithm(QtCore.QThread):
         return stf
 
     @staticmethod
-    def calculate_ms(stf, verbose=True):
+    def calculate_fitness(stf, verbose=True):
         """
-        Calculates the value of the objective function: Mean-Squared.
+        Calculates the value of the objective function.
         A measure of the STF curve's deviation from being flat.
-        MS gives extra weight to outliers as these are extra sensitive to perceived sound.
         """
-        ms = np.average(np.sum(np.square(stf[1])))
-        if verbose: print("Calculated MS: {0}".format(ms))
-        return ms
+        fitness = np.average(np.abs(stf[1]))
+        if verbose: print("Calculated fitness: {0}".format(fitness))
+        return fitness
 
 
 def _record(bfr_array, rec_array, stream_sync_event, start_event):

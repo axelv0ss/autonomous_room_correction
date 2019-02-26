@@ -326,17 +326,6 @@ def calculate_stf(ref_in_snippet_fd_smooth, meas_in_snippet_fd_smooth, verbose=T
     return stf
 
 
-def calculate_ms(stf, verbose=True):
-    """
-    Calculates the value of the objective function: Mean-Squared.
-    A measure of the STF curve's deviation from being flat.
-    MS gives extra weight to outliers as these are extra sensitive to perceived sound.
-    """
-    ms = np.average(np.sum(np.square(stf[1])))
-    if verbose: print("Calculated MS: {0}".format(ms))
-    return ms
-
-
 # wd = "H://MSci//Initial_investigation"
 wd = "//Users//axel//Documents//_Coursework//Y4//MSci_Project//_MSci//stf_vs_req_graph////"
 
@@ -509,9 +498,6 @@ def plot_all_stfs(bg_model_fd, req_freq, req_db):
         
         stfs[name] = stf
 
-        # ms = calculate_ms(stf, v)
-        # ms_vals.append(ms)
-
     plt.figure(1, figsize=(9, 7))
 
     req_db_normalised = req_db - np.average(req_db)
@@ -577,8 +563,6 @@ def plot_all_stfs_poster(bg_model_fd, req_freq, req_db):
         
         stfs[name] = stf
         
-        # ms = calculate_ms(stf, v)
-        # ms_vals.append(ms)
     
     fig, ax = plt.subplots(figsize=(10, 5))
     

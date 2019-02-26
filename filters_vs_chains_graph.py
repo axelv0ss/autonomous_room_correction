@@ -74,7 +74,8 @@ FONTSIZE_LABELS = 25
 FONTSIZE_LEGENDS = 20
 FONTSIZE_TICKS = 20
 
-if __name__ == "__main__":
+
+def plot_poster():
     RATE = 44100
     
     filters = [PeakFilter(700, 5, 1, RATE),
@@ -111,5 +112,35 @@ if __name__ == "__main__":
     
     plt.tight_layout()
     fig.patch.set_alpha(0)
-    fig.savefig("filter_chain.png", transparent=False, dpi=800)
-    # plt.show()
+    # fig.savefig("filter_chain.png", transparent=False, dpi=800)
+    plt.show()
+
+
+def investigating_offset():
+    # Page 91 in lab book
+    RATE = 96000
+    
+    fc = 5000
+    gain = 5
+    q = 2
+    
+    f_frac = fc / RATE
+    w_frac = 2 * np.pi * f_frac
+
+    num = [1, 10 ** (gain / 20) * w_frac / q, w_frac ** 2]
+    den = [1, w_frac / q, w_frac ** 2]
+
+    b, a = signal.bilinear(num, den)
+
+    w, h = signal.freqz(b, a)
+    f = w * RATE / (2 * np.pi)
+    
+    plt.semilogx(f, h)
+    plt.minorticks_on()
+    plt.grid(which="major", linestyle="-", alpha=0.4)
+    plt.grid(which="minor", linestyle="--", alpha=0.2)
+    plt.show()
+
+
+# investigating_offset()
+plot_poster()

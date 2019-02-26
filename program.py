@@ -15,7 +15,7 @@ class Program(QWidget):
     update_filter_ax_signal = QtCore.pyqtSignal()
     collect_algorithm_queue_data_signal = QtCore.pyqtSignal()
     update_stf_ax_signal = QtCore.pyqtSignal()
-    update_ms_iter_ax_signal = QtCore.pyqtSignal()
+    update_fitness_iter_ax_signal = QtCore.pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -23,7 +23,7 @@ class Program(QWidget):
         self.update_filter_ax_signal.connect(self.update_filter_ax)
         self.collect_algorithm_queue_data_signal.connect(self.collect_algorithm_queue_data)
         self.update_stf_ax_signal.connect(self.update_stf_ax)
-        self.update_ms_iter_ax_signal.connect(self.update_ms_iter_ax)
+        self.update_fitness_iter_ax_signal.connect(self.update_fitness_iter_ax)
         
         self.title = "Autonomous Room Correction  //  Rate: {0}Hz  //  Format: {1}  //  Buffer: {2}  //  " \
                      "Range: {3}Hz - {4}Hz".format(RATE, str(NP_FORMAT).split('\'')[1], BUFFER, *F_LIMITS)
@@ -93,7 +93,7 @@ class Program(QWidget):
         self.canvas = FigureCanvas(self.figure)
         self.toolbar = NavigationToolbar(self.canvas, self)
 
-        (self.bg_model_ax, self.ms_iter_ax), (self.filter_ax, self.stf_ax) = self.figure.subplots(2, 2)
+        (self.bg_model_ax, self.fitness_iter_ax), (self.filter_ax, self.stf_ax) = self.figure.subplots(2, 2)
         self.figure.tight_layout()
         
         self.bg_btn = QPushButton("Take Background Measurement")
@@ -130,13 +130,13 @@ class Program(QWidget):
         self.bg_model_ax.set_xscale("log")
 
         # Algorithm Progression
-        self.ms_iter_ax.set_title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
-        self.ms_iter_ax.set_ylabel("Mean-Squared Error", fontsize=FONTSIZE_LABELS)
-        self.ms_iter_ax.set_xlabel("Iteration", fontsize=FONTSIZE_LABELS)
-        self.ms_iter_ax.minorticks_on()
-        self.ms_iter_ax.tick_params(labelsize=FONTSIZE_TICKS)
-        self.ms_iter_ax.grid(which="major", linestyle="-", alpha=0.4)
-        self.ms_iter_ax.grid(which="minor", linestyle="--", alpha=0.2)
+        self.fitness_iter_ax.set_title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
+        self.fitness_iter_ax.set_ylabel("Fitness", fontsize=FONTSIZE_LABELS)
+        self.fitness_iter_ax.set_xlabel("Iteration", fontsize=FONTSIZE_LABELS)
+        self.fitness_iter_ax.minorticks_on()
+        self.fitness_iter_ax.tick_params(labelsize=FONTSIZE_TICKS)
+        self.fitness_iter_ax.grid(which="major", linestyle="-", alpha=0.4)
+        self.fitness_iter_ax.grid(which="minor", linestyle="--", alpha=0.2)
         
         # Current Filter Chain
         self.filter_ax.set_title("Current Filter Chain", fontsize=FONTSIZE_TITLES)
@@ -197,39 +197,39 @@ class Program(QWidget):
                                 fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
     
-    def update_ms_iter_ax(self):
+    def update_fitness_iter_ax(self):
         # Remove all existing lines
-        self.ms_iter_ax.lines = list()
-        ms_r, ms_p, ms_cm = list(), list(), list()
+        self.fitness_iter_ax.lines = list()
+        fitness_r, fitness_p, fitness_cm = list(), list(), list()
         iter_r, iter_p, iter_cm = list(), list(), list()
-        # Plot all MS as scatter, colour coded
+        # Plot all fitness as scatter, colour coded
         for i, population in enumerate(self.population_history):
             for chain in population:
                 if chain.kind == "r":
-                    ms_r.append(chain.ms)
+                    fitness_r.append(chain.fitness)
                     iter_r.append(i + 1)
                 elif chain.kind == "p":
-                    ms_p.append(chain.ms)
+                    fitness_p.append(chain.fitness)
                     iter_p.append(i + 1)
                 elif chain.kind == "c":
-                    ms_cm.append(chain.ms)
+                    fitness_cm.append(chain.fitness)
                     iter_cm.append(i + 1)
                 elif chain.kind == "m":
-                    ms_cm.append(chain.ms)
+                    fitness_cm.append(chain.fitness)
                     iter_cm.append(i + 1)
 
-        self.ms_iter_ax.plot(iter_r, ms_r, linestyle="", marker="o", color="C0", label="Random")
-        self.ms_iter_ax.plot(iter_p, ms_p, linestyle="", marker="o", color="C1", label="Promoted")
-        self.ms_iter_ax.plot(iter_cm, ms_cm, linestyle="", marker="o", color="C2", label="Crossover/Mutated")
+        self.fitness_iter_ax.plot(iter_r, fitness_r, linestyle="", marker="o", color="C0", label="Random")
+        self.fitness_iter_ax.plot(iter_p, fitness_p, linestyle="", marker="o", color="C1", label="Promoted")
+        self.fitness_iter_ax.plot(iter_cm, fitness_cm, linestyle="", marker="o", color="C2", label="Crossover/Mutated")
         
-        # Plot best ms
-        self.ms_iter_ax.plot(self.best_ms_list, color="black", label="Best MS")
-        self.ms_iter_ax.legend(fontsize=FONTSIZE_LEGENDS)
+        # Plot best fitness
+        self.fitness_iter_ax.plot(self.best_fitness_list, color="black", label="Best fitness")
+        self.fitness_iter_ax.legend(fontsize=FONTSIZE_LEGENDS)
 
         # Dynamically set axes limits
-        self.ms_iter_ax.relim()
-        self.ms_iter_ax.autoscale_view()
-        self.ms_iter_ax.set_autoscale_on(True)
+        self.fitness_iter_ax.relim()
+        self.fitness_iter_ax.autoscale_view()
+        self.fitness_iter_ax.set_autoscale_on(True)
 
         self.canvas.draw()
 
@@ -255,10 +255,10 @@ class Program(QWidget):
 
     def update_stf_ax(self):
         self.stf_ax.lines = list()
-        self.stf_ax.plot(*self.best_stf, color="black", label="Current best STF (MS={0})".format(int(self.best_ms)),
-                         linestyle="-", linewidth=2, zorder=-1)
-        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF (MS={0})".format(int(self.initial_ms)),
-                         linestyle="-", linewidth=2)
+        self.stf_ax.plot(*self.best_stf, color="black", label="Current best STF (fitness={0})"
+                         .format(int(self.best_fitness)), linestyle="-", linewidth=2, zorder=-1)
+        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF (fitness={0})"
+                         .format(int(self.initial_fitness)), linestyle="-", linewidth=2)
 
         self.stf_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
@@ -269,10 +269,10 @@ class Program(QWidget):
         """
         # Collect the data
         self.initial_stf = self.alg_queue.get()
-        self.initial_ms = self.alg_queue.get()
+        self.initial_fitness = self.alg_queue.get()
         self.best_stf = self.alg_queue.get()
-        self.best_ms = self.alg_queue.get()
-        self.best_ms_list = self.alg_queue.get()
+        self.best_fitness = self.alg_queue.get()
+        self.best_fitness_list = self.alg_queue.get()
         curr_population = self.alg_queue.get()
         # deepcopy is needed because the filter chains are mutable and change between iterations
         self.population_history.append(deepcopy(curr_population))
@@ -325,7 +325,7 @@ class Program(QWidget):
         
         self.algorithm = Algorithm(self.alg_queue, self.ref_in_buffer, self.meas_in_buffer, self.main_sync_event,
                                    self.meas_sync_event, self.bg_model, self.live_chain, self.update_filter_ax_signal,
-                                   self.collect_algorithm_queue_data_signal, self.update_ms_iter_ax_signal,
+                                   self.collect_algorithm_queue_data_signal, self.update_fitness_iter_ax_signal,
                                    self.update_stf_ax_signal, self.algorithm_running)
         self.algorithm.start()
         # Algorithm thread finishes when the user presses the Stop Algorithm-button
@@ -407,22 +407,22 @@ class Program(QWidget):
                               "{2}\n\n"
                               .format(*self.bg_model, snippets))
             
-            # Save initial MS and STF
-            outfile.write("/// INITIAL STF AND MS ///\n"
+            # Save initial fitness and STF
+            outfile.write("/// INITIAL STF AND FITNESS ///\n"
                           "freq = {0}\n"
                           "stf_init = {1}\n"
-                          "ms_init = {2}\n\n\n"
-                          .format(*self.initial_stf, self.initial_ms))
+                          "fitness_init = {2}\n\n\n"
+                          .format(*self.initial_stf, self.initial_fitness))
             
             # Save algorithm iteration data
             w = "/// ALGORITHM ///\n\n"
             for i, population in enumerate(self.population_history):
-                best_chain = sorted(population, key=lambda x: x.ms)[0]
-                w += "/// iteration: {0}, best.ms: {1}, best.id: {2}, best.kind = {3}\n"\
-                     .format(i + 1, best_chain.ms, best_chain.id, best_chain.kind)
+                best_chain = sorted(population, key=lambda x: x.fitness)[0]
+                w += "/// iteration: {0}, best.fitness: {1}, best.id: {2}, best.kind = {3}\n"\
+                     .format(i + 1, best_chain.fitness, best_chain.id, best_chain.kind)
                 for chain in population:
-                    w += "chain_id_{0}:\nstf = {1}\nms = {2}\nkind = {3}\n"\
-                         .format(chain.id, chain.stf[1], chain.ms, chain.kind)
+                    w += "chain_id_{0}:\nstf = {1}\nfitness = {2}\nkind = {3}\n"\
+                         .format(chain.id, chain.stf[1], chain.fitness, chain.kind)
                     w += "{0}\n\n".format(chain.get_chain_settings())
                 w += "\n\n"
             outfile.write(w)
