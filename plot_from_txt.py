@@ -166,8 +166,8 @@ def plot_efp(file_path):
     ax.plot(range(len(best_ms)), best_ms, linewidth=3)
     
     # plt.title("Sound Improvement", fontsize=FONTSIZE_TITLES)
-    plt.ylabel("Room Colouration", fontsize=FONTSIZE_LABELS*2)
-    plt.xlabel("Time", fontsize=FONTSIZE_LABELS*2)
+    plt.ylabel("Room Colouration", fontsize=FONTSIZE_LABELS * 2)
+    plt.xlabel("Time", fontsize=FONTSIZE_LABELS * 2)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     
@@ -180,7 +180,66 @@ def plot_efp(file_path):
     
     plt.show()
 
-plot_layman(path)
+
+def plot_poster(file_path):
+    FONTSIZE_LABELS = 25
+    FONTSIZE_LEGENDS = 20
+    FONTSIZE_TICKS = 20
+    
+    all_ms = dict()
+    
+    with open(file_path, "r") as infile:
+        for line in infile:
+            if "ms_init" in line:
+                best_ms = [float(line.split(" = ")[1])]
+            if "best.ms" in line:
+                best_ms.append(float(line.split("best.ms: ")[1].split(",")[0]))
+            if "/// iteration: " in line:
+                curr_i = int(line.split("/// iteration: ")[1].split(", best.ms")[0])
+                all_ms[curr_i] = list()
+            if "ms = " in line:
+                ms = float(line.split("ms = ")[1])
+                all_ms[curr_i].append(ms)
+    
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    ax.plot(range(len(best_ms)), best_ms, linewidth=2, label="Best Chain", color="black")
+    
+    first = True
+    for iter, ms_vals in all_ms.items():
+        if first:
+            first = False
+            ax.plot([iter] * len(ms_vals), ms_vals, linestyle="", marker="o", color="gray", label="Individual Chains",
+                    markersize=6)
+        else:
+            ax.plot([iter] * len(ms_vals), ms_vals, linestyle="", marker="o", color="gray", markersize=6)
+    
+    # plt.title("Sound Improvement", fontsize=FONTSIZE_TITLES)
+    plt.ylabel("Mean-Squared Error", fontsize=FONTSIZE_LABELS)
+    plt.xlabel("Iteration", fontsize=FONTSIZE_LABELS)
+    # ax.spines["top"].set_visible(False)
+    # ax.spines["right"].set_visible(False)
+    
+    # plt.minorticks_on()
+    # plt.tick_params(labelsize=FONTSIZE_TICKS)
+    # plt.xticks([])
+    # plt.yticks([])
+    # plt.grid(which="major", linestyle="-", alpha=0.4)
+    # plt.grid(which="minor", linestyle="--", alpha=0.2)
+    plt.legend(fontsize=FONTSIZE_LEGENDS)
+    plt.minorticks_on()
+    plt.grid(which="major", linestyle="-", alpha=0.4)
+    plt.grid(which="minor", linestyle="--", alpha=0.2)
+    plt.tick_params(labelsize=FONTSIZE_TICKS)
+
+    plt.tight_layout()
+    fig.patch.set_alpha(0)
+    # fig.savefig("algo_progression.png", transparent=False, dpi=800)
+    
+    plt.show()
+
+
+plot_poster(path)
 # plot_background(path)
 # plot_efp(path)
 

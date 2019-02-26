@@ -531,7 +531,12 @@ def plot_all_stfs(bg_model_fd, req_freq, req_db):
     plt.show()
 
 
-def plot_all_stfs_gray(bg_model_fd, req_freq, req_db):
+def plot_all_stfs_poster(bg_model_fd, req_freq, req_db):
+    FONTSIZE_TITLES = 12
+    FONTSIZE_LABELS = 25
+    FONTSIZE_LEGENDS = 20
+    FONTSIZE_TICKS = 20
+    
     file_path_ref = wd + "music_10composite_32bFlt44p1K_reference.wav"
     file_path_mes = wd + "music_10composite_32bFlt44p1K_measurement.wav"
     
@@ -575,7 +580,7 @@ def plot_all_stfs_gray(bg_model_fd, req_freq, req_db):
         # ms = calculate_ms(stf, v)
         # ms_vals.append(ms)
     
-    plt.figure(1, figsize=(9, 7))
+    fig, ax = plt.subplots(figsize=(10, 5))
     
     req_db_normalised = req_db - np.average(req_db)
     plt.semilogx(req_freq, req_db_normalised, label="Time Delay Spectrometry", color="black", linewidth=1.8)
@@ -596,10 +601,13 @@ def plot_all_stfs_gray(bg_model_fd, req_freq, req_db):
     plt.grid(which="major", linestyle="-", alpha=0.4)
     plt.grid(which="minor", linestyle="--", alpha=0.2)
     plt.tick_params(labelsize=FONTSIZE_TICKS)
-    plt.show()
+
+    plt.tight_layout()
+    fig.patch.set_alpha(0)
+    fig.savefig("music_stf.png", transparent=False, dpi=800)
 
 
 bg_model_fd = produce_background()
 req_freq, req_db = produce_req_curve()
 
-plot_all_stfs_gray(bg_model_fd, req_freq, req_db)
+plot_all_stfs_poster(bg_model_fd, req_freq, req_db)
