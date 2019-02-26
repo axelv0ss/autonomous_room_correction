@@ -29,10 +29,13 @@ EXPORT_WAV = True
 # F_LIMITS = [40, 20000]  # TEST
 F_LIMITS = [500, 15000]  # DEV
 OCT_FRAC = 1 / 6
+# After this number of attempts of creating a chain with non-overlapping filters from the
+# filter pool is reached, wipe the current attempt and start again.
+MAX_CROSSOVER_ATTEMPTS = 100
 
 # For evolutionary algorithm
 POP_SIZE = 10
-NUM_FILTERS = 6
+NUM_FILTERS = 5
 GAIN_LIMITS = [-5, 5]
 Q_LIMITS = [1, 6]
 
@@ -43,7 +46,7 @@ STDEV_FC = 0.2  # Standard deviation (proportion) with which to mutate fc
 STDEV_GAIN = 1  # Standard deviation (linear) with which to mutate gain
 STDEV_Q = 0.2  # Standard deviation (proportion) with which to mutate Q
 
-PROP_RND = 0.3  # Proportion of random filters added in filter pool
+PROP_RND = 0.5  # Proportion of random filters added in filter pool
 
 # To prevent signal clipping (dB)
 ATTENUATE_OUTPUT = -0

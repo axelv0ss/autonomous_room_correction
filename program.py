@@ -256,9 +256,9 @@ class Program(QWidget):
     def update_stf_ax(self):
         self.stf_ax.lines = list()
         self.stf_ax.plot(*self.best_stf, color="black", label="Current best STF (fitness={0})"
-                         .format(int(self.best_fitness)), linestyle="-", linewidth=2, zorder=-1)
+                         .format(round(self.best_fitness, 2)), linestyle="-", linewidth=2, zorder=-1)
         self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF (fitness={0})"
-                         .format(int(self.initial_fitness)), linestyle="-", linewidth=2)
+                         .format(round(self.initial_fitness, 2)), linestyle="-", linewidth=2)
 
         self.stf_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
@@ -370,25 +370,26 @@ class Program(QWidget):
                           
                           "EXPORT_WAV = {6}\n"
                           "F_LIMITS = {7}\n"
-                          "OCT_FRAC = {8}\n\n"
+                          "OCT_FRAC = {8}\n"
+                          "MAX_CROSSOVER_ATTEMPTS = {9}\n\n"
                           
-                          "POP_SIZE = {9}\n"
-                          "NUM_FILTERS = {10}\n"
-                          "GAIN_LIMITS = {11}\n"
-                          "Q_LIMITS = {12}\n\n"
+                          "POP_SIZE = {10}\n"
+                          "NUM_FILTERS = {11}\n"
+                          "GAIN_LIMITS = {12}\n"
+                          "Q_LIMITS = {13}\n\n"
                           
-                          "PROP_PROMOTED = {13}\n\n"
+                          "PROP_PROMOTED = {14}\n\n"
                           
-                          "PROB_MUT = {14}\n"
-                          "STDEV_FC = {15}\n"
-                          "STDEV_GAIN = {16}\n"
-                          "STDEV_Q = {17}\n\n"
+                          "PROB_MUT = {15}\n"
+                          "STDEV_FC = {16}\n"
+                          "STDEV_GAIN = {17}\n"
+                          "STDEV_Q = {18}\n\n"
             
-                          "PROP_RND = {18}\n\n\n"
+                          "PROP_RND = {19}\n\n\n"
             
                           .format(RATE, BUFFER, SNIPPET_LENGTH, BACKGROUND_LENGTH, MEAS_REF_LATENCY,
                                   LATENCY_MEASUREMENT_LENGTH,
-                                  EXPORT_WAV, F_LIMITS, OCT_FRAC,
+                                  EXPORT_WAV, F_LIMITS, OCT_FRAC, MAX_CROSSOVER_ATTEMPTS,
                                   POP_SIZE, NUM_FILTERS, GAIN_LIMITS, Q_LIMITS,
                                   PROP_PROMOTED,
                                   PROB_MUT, STDEV_FC, STDEV_GAIN, STDEV_Q,

@@ -73,7 +73,7 @@ class PeakFilter(object):
 
     def set_params(self, fc, gain, q):
         """
-        Used by __init__() to set parameters of each filter
+        Used by __init__() to set parameters of each filter.
         """
         if (fc is None) and (gain is None) and (q is None):
             return
@@ -97,6 +97,10 @@ class PeakFilter(object):
         # Calculate coefficients in Z-domain using Bi-linear transform
         self.b, self.a = signal.bilinear(num, den)
 
+        bw = self.fc / self.q
+        self.f1 = (-bw + np.sqrt(bw ** 2 + 4 * self.fc ** 2)) / 2
+        self.f2 = bw + self.f1
+
     def get_b_a(self):
         """
         Used by FilterChain to get digital filter coefficients
@@ -118,6 +122,12 @@ class PeakFilter(object):
         w_f, h = signal.freqz(*self.get_b_a())
         f = w_f * RATE / (2 * np.pi)
         return f, h
+    
+    def get_f1_f2(self):
+        """
+        Returns a tuple of the restricted band for where other filters cannot go.
+        """
+        return self.f1, self.f2
 
 
 class FilterChain(object):
@@ -258,7 +268,14 @@ class Population(object):
         for i in range(POP_SIZE):
             filters = []
             for j in range(NUM_FILTERS):
-                filters.append(PeakFilter(*self.random_filter_params()))
+                
+                # Loop until there are no filter band overlaps
+                while True:
+                    filter_candidate = PeakFilter(*self.random_filter_params())
+                    if is_filter_allowed(filters, filter_candidate):
+                        break
+                filters.append(filter_candidate)
+                
             self.population.append(FilterChain(*filters))
 
     @staticmethod
@@ -302,7 +319,7 @@ class Population(object):
         # Determine which chains get promoted
         num_promoted = int(round(POP_SIZE * PROP_PROMOTED))
         promoted = self.population[:num_promoted]
-        # Change the kind of all promoted chains to be p (for promoted)
+        # Set the kind of all promoted chains to be p (for promoted)
         for i in range(len(promoted)):
             promoted[i].kind = "p"
 
@@ -328,9 +345,35 @@ class Population(object):
         # 4. Create the new filter chains
         num_new_chains = POP_SIZE - num_promoted
         new_chains = list()
-        for _ in range(num_new_chains):
-            chain = FilterChain(*random.sample(filter_pool, NUM_FILTERS), kind="c")
+        for i in range(num_new_chains):
+            # Create the list of non overlapping filters
+            filters = list()
+            print("Chain {0}/{1}: Finding combination of filters that is not overlapping...".format(i + 1, num_new_chains))
+            # Continue looping until the required number of filters for the new chain is reached.
+            while len(filters) < NUM_FILTERS:
+                crossover_attempt = 1
+                filter_found = False
+                # Try to add a new filter with a maximum number of attempts
+                while crossover_attempt < MAX_CROSSOVER_ATTEMPTS:
+                    filter_candidate = random.choice(filter_pool)
+                    if is_filter_allowed(filters, filter_candidate):
+                        filter_found = True
+                        break
+                    crossover_attempt += 1
+                
+                # Append the filter to list if a non-overlapping one is found
+                if filter_found:
+                    filters.append(filter_candidate)
+                # If a suitable filter was not found within the maximum number of attempts,
+                # wipe the current attempt and try again.
+                else:
+                    print("Maximum number of {0} attempts reached, trying again...".format(MAX_CROSSOVER_ATTEMPTS))
+                    filters = list()
+                
+            chain = FilterChain(*filters, kind="c")
             new_chains.append(chain)
+            # print("...done!")
+        
         print("Created {0} new chains from filter pool".format(num_new_chains))
         
         # 5. Mutation
@@ -394,13 +437,9 @@ class Population(object):
         # Lastly, reset the self.population list. We will create the new one.
         self.population = promoted + new_chains
         
-        # print()
+        # print("\nKINDS NEXT ITER:")
         # for chain in self.population:
-        #     for filt in chain.filters:
-        #         print(filt.id, end="\t")
-        #     print()
-            
-        # random.shuffle(self.population)
+        #     print(chain.kind)
     
     def mutate_fc(self, fc_old):
         """
@@ -1260,3 +1299,20 @@ def smoothen_data_fd(x_in, y_in):
                                      "increase OCT_FRAC.\nlen(x)={0}, len(y)={1}\nbin_edges={2}\nx_in={3}" \
                                      .format(len(x_out), len(y_out), bin_edges, x_in)
     return x_out, y_out
+
+
+def is_filter_allowed(existing_filters, new_filter):
+    """
+    Returns: bool (True of False)
+    True if the new filter does not overlap with any filter in existing filters.
+    False otherwise.
+    """
+    f1, f2 = new_filter.get_f1_f2()
+    for filt in existing_filters:
+        f1_ex, f2_ex = filt.get_f1_f2()
+        
+        if not (f2 < f1_ex or f1 > f2_ex):
+            # print("!! REJECTED FILTER. range_existing=[{0}, {1}], range_new=[{2}, {3}]".format(f1_ex, f2_ex, f1, f2))
+            return False
+    # print("!! ACCEPTED FILTER")
+    return True
