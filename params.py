@@ -13,11 +13,11 @@ BUFFER = 16384
 
 # Need to be multiples of BUFFER
 # # DEV
-SNIPPET_LENGTH = 16384 * 10
-BACKGROUND_LENGTH = 16384 * 50
+# SNIPPET_LENGTH = 16384 * 10
+# BACKGROUND_LENGTH = 16384 * 50
 # # TEST
-# SNIPPET_LENGTH = 16384 * 14  # 5s of audio for 16384-buffer
-# BACKGROUND_LENGTH = SNIPPET_LENGTH * 10
+SNIPPET_LENGTH = 16384 * 14  # 5s of audio for 16384-buffer
+BACKGROUND_LENGTH = SNIPPET_LENGTH * 10
 
 # How much time (in seconds) that the meas_in stream is ahead of ref_in stream.
 # Can be calibrated by enabling wav export and see how much lag there is
@@ -26,9 +26,10 @@ LATENCY_MEASUREMENT_LENGTH = 212992
 
 # Program parameters
 EXPORT_WAV = True
-# F_LIMITS = [40, 20000]  # TEST
-F_LIMITS = [500, 15000]  # DEV
+F_LIMITS = [40, 20000]  # TEST
+# F_LIMITS = [500, 15000]  # DEV
 OCT_FRAC = 1 / 6
+
 # After this number of attempts of creating a chain with non-overlapping filters from the
 # filter pool is reached, wipe the current attempt and start again.
 MAX_CROSSOVER_ATTEMPTS = 100
@@ -36,7 +37,7 @@ MAX_CROSSOVER_ATTEMPTS = 100
 # For evolutionary algorithm
 POP_SIZE = 10
 NUM_FILTERS = 5
-GAIN_LIMITS = [-5, 5]
+GAIN_LIMITS = [-10, 10]
 Q_LIMITS = [1, 6]
 
 PROP_PROMOTED = 0.3  # Proportion of chains promoted in each iteration
@@ -58,13 +59,13 @@ FONTSIZE_LEGENDS = 9
 FONTSIZE_TICKS = 9
 
 # Routing, audio device indices
-# REF_IN_INDEX = 3  # Soundflower (2ch)
-# MEAS_OUT_INDEX = 2  # soundcard
-# MEAS_IN_INDEX = 2  # soundcard
+REF_IN_INDEX = 3  # Soundflower (2ch)
+MEAS_OUT_INDEX = 2  # soundcard
+MEAS_IN_INDEX = 2  # soundcard
 
-REF_IN_INDEX = 2  # Soundflower (2ch)
-MEAS_OUT_INDEX = 1  # Built-in Output
-MEAS_IN_INDEX = 0  # Built-in Microphone
+# REF_IN_INDEX = 2  # Soundflower (2ch)
+# MEAS_OUT_INDEX = 1  # Built-in Output
+# MEAS_IN_INDEX = 0  # Built-in Microphone
 
 assert SNIPPET_LENGTH % BUFFER == 0, "SNIPPET_LENGTH must be an integer multiple of BUFFER"
 assert BACKGROUND_LENGTH % BUFFER == 0, "BACKGROUND_LENGTH must be an integer multiple of BUFFER"

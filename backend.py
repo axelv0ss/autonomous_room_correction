@@ -119,7 +119,7 @@ class PeakFilter(object):
         Get the (complex) Transfer Function of the filter.
         Needs to be converted to dB using 20*log(abs(H))
         """
-        w_f, h = signal.freqz(*self.get_b_a())
+        w_f, h = signal.freqz(*self.get_b_a(), worN=4096)
         f = w_f * RATE / (2 * np.pi)
         return f, h
     
@@ -378,57 +378,51 @@ class Population(object):
         
         # 5. Mutation
         # To keep track/print progress
-        num_fc_mut, num_gain_mut, num_q_mut = 0, 0, 0
+        self.num_fc_mut, self.num_gain_mut, self.num_q_mut = 0, 0, 0
         num_filters_mut = 0
-        mutation_table = list()
+        self.mutation_table = list()
         
-        # Iterate through all individual filters and mutate
         for chain in new_chains:
             new_filters = list()
+            new_filters_mutated = list()
+            new_filters_mutated_originals = list()
             chain_kind = "c"
-            # This style of loop is required to mutate the chain.filters list
+
+            # Iterate through all individual filters and mutate
             for filt in chain.get_filters():
-                fc, gain, q = filt.fc, filt.gain, filt.q
-                mutated = False
-                # Mutate fc
-                if np.random.random() < PROB_MUT:
-                    fc = self.mutate_fc(filt.fc)
-                    num_fc_mut += 1
-                    mutation_table.append(("fc", filt.fc, fc))
-                    mutated = True
-                # Mutate gain
-                if np.random.random() < PROB_MUT:
-                    gain = self.mutate_gain(filt.gain)
-                    num_gain_mut += 1
-                    mutation_table.append(("gain", filt.gain, gain))
-                    mutated = True
-                # Mutate Q
-                if np.random.random() < PROB_MUT:
-                    q = self.mutate_q(filt.q)
-                    num_q_mut += 1
-                    mutation_table.append(("Q", filt.q, q))
-                    mutated = True
+                # Returns the original and the potentially mutated filter
+                orig_filt, new_filt, new_is_mutated = self.mutate_filter(filt)
                 
-                if mutated:
-                    new_filters.append(PeakFilter(fc, gain, q))
+                if new_is_mutated:
+                    new_filters_mutated.append(new_filt)
+                    new_filters_mutated_originals.append(orig_filt)
                     num_filters_mut += 1
                     chain_kind = "m"
                 else:
-                    new_filters.append(filt)
+                    new_filters.append(new_filt)
+            
+            # Try fitting the mutated filters
+            for i in range(len(new_filters_mutated)):
+                new_filt = new_filters_mutated[i]
+                orig_filt = new_filters_mutated_originals[i]
+                # Keep mutating the original until obtaining a mutated filter that fits
+                while not is_filter_allowed(new_filters, new_filt):
+                    _, new_filt, _ = self.mutate_filter(orig_filt)
+                new_filters.append(new_filt)
             
             assert len(chain.filters) == len(new_filters)
             chain.filters = tuple(new_filters)
             chain.kind = chain_kind
             
         print("Mutation results: num_filters_mut = {0}, num_fc = {1}, num_gain = {2}, num_q = {3}"
-              .format(num_filters_mut, num_fc_mut, num_gain_mut, num_q_mut))
+              .format(num_filters_mut, self.num_fc_mut, self.num_gain_mut, self.num_q_mut))
         
         print("New population calculated!")
         
         print("\nMUTATION TABLE:")
         print("%-12s%-20s%-20s" % ("param", "old", "new"))
         print("-" * 32)
-        for param, old, new in mutation_table:
+        for param, old, new in self.mutation_table:
             print("%-8s%-12f%-12f" % (param, old, new))
             
         # Save the new population!
@@ -441,6 +435,37 @@ class Population(object):
         # for chain in self.population:
         #     print(chain.kind)
     
+    def mutate_filter(self, filt):
+        """
+        Mutates a filter parameter with probability PROM_MUT.
+        This style of loop is required to mutate the chain.filters list.
+        """
+        fc, gain, q = filt.fc, filt.gain, filt.q
+        is_mutated = False
+        # Mutate fc
+        if np.random.random() < PROB_MUT:
+            fc = self.mutate_fc(filt.fc)
+            self.num_fc_mut += 1
+            self.mutation_table.append(("fc", filt.fc, fc))
+            is_mutated = True
+        # Mutate gain
+        if np.random.random() < PROB_MUT:
+            gain = self.mutate_gain(filt.gain)
+            self.num_gain_mut += 1
+            self.mutation_table.append(("gain", filt.gain, gain))
+            is_mutated = True
+        # Mutate Q
+        if np.random.random() < PROB_MUT:
+            q = self.mutate_q(filt.q)
+            self.num_q_mut += 1
+            self.mutation_table.append(("Q", filt.q, q))
+            is_mutated = True
+        
+        if is_mutated:
+            return filt, PeakFilter(fc, gain, q), is_mutated
+        else:
+            return filt, filt, is_mutated
+        
     def mutate_fc(self, fc_old):
         """
         Takes an old fc value and mutates it using a Guassian with standard deviation STDEV_FC.
