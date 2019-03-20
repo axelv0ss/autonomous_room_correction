@@ -21,7 +21,7 @@ BACKGROUND_LENGTH = SNIPPET_LENGTH * 10
 
 # How much time (in seconds) that the meas_in stream is ahead of ref_in stream.
 # Can be calibrated by enabling wav export and see how much lag there is
-MEAS_REF_LATENCY = 0.479
+MEAS_REF_LATENCY = 0.569
 LATENCY_MEASUREMENT_LENGTH = 212992
 
 # Program parameters
@@ -33,21 +33,21 @@ OCT_FRAC = 1 / 6
 # After this number of attempts of creating a chain with non-overlapping filters from the
 # filter pool is reached, wipe the current attempt and start again.
 MAX_CROSSOVER_ATTEMPTS = 100
+MAX_MUTATION_ATTEMPTS = 500
 
 # For evolutionary algorithm
-POP_SIZE = 10
+POP_SIZE = 100
 NUM_FILTERS = 5
 GAIN_LIMITS = [-10, 10]
 Q_LIMITS = [1, 6]
 
-PROP_PROMOTED = 0.3  # Proportion of chains promoted in each iteration
+PROP_PROMOTED = 0.33  # Proportion of chains promoted in each iteration
 
-PROB_MUT = 0.3  # Probability of independently mutating a each parameter of each filter in filter pool
-STDEV_FC = 0.2  # Standard deviation (proportion) with which to mutate fc
-STDEV_GAIN = 1  # Standard deviation (linear) with which to mutate gain
-STDEV_Q = 0.2  # Standard deviation (proportion) with which to mutate Q
+STDEV_FC = 0.5 * 2  # Standard deviation (proportion) with which to mutate fc
+STDEV_GAIN = 2 * 2  # Standard deviation (linear) with which to mutate gain
+STDEV_Q = 0.5 * 2  # Standard deviation (proportion) with which to mutate Q
 
-PROP_RND = 0.5  # Proportion of random filters added in filter pool
+PROP_RND = 0  # Proportion of random filters added in filter pool
 
 # To prevent signal clipping (dB)
 ATTENUATE_OUTPUT = -0

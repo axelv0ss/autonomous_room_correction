@@ -6,6 +6,7 @@ from PyQt5 import QtCore
 # import queue
 import itertools
 import random
+from copy import deepcopy
 
 
 class QuietMeasurementException(Exception):
@@ -119,7 +120,7 @@ class PeakFilter(object):
         Get the (complex) Transfer Function of the filter.
         Needs to be converted to dB using 20*log(abs(H))
         """
-        w_f, h = signal.freqz(*self.get_b_a(), worN=4096)
+        w_f, h = signal.freqz(*self.get_b_a(), worN=4096*8)
         f = w_f * RATE / (2 * np.pi)
         return f, h
     
@@ -136,7 +137,7 @@ class FilterChain(object):
     def __init__(self, *filters, kind="r"):
         """
         *filters: Arbitrary number of filter objects, e.g. PeakFilter
-        kind: can be "r", "p", "c", "m" for random, promoted, crossover, mutated.
+        kind: can be "r", "p", "c" for random, promoted, crossover.
         """
         self.filters = filters
         self.kind = kind
@@ -301,6 +302,7 @@ class Population(object):
         return fc, gain, q
 
     def get_population(self):
+        # deepcopy is needed because the filter chains are mutable and change between iterations
         return self.population[:]
 
     def calculate_new_population(self):
@@ -330,9 +332,11 @@ class Population(object):
         for chain in promoted:
             filter_pool.extend(chain.filters)
         print("Total number of filters currently in pool: {0}".format(len(filter_pool)))
+        
+        # REMOVED THE BELOW: IT DOES MAKE SENSE THAT A POPULAR FILTER HAS A HIGHER PROBABILIY OF BEING SELECTED
         # Remove duplicates
-        filter_pool = list(set(filter_pool))
-        print("Removed duplicates, new number of filters in pool: {0}".format(len(filter_pool)))
+        # filter_pool = list(set(filter_pool))
+        # print("Removed duplicates, new number of filters in pool: {0}".format(len(filter_pool)))
 
         # 3. Append random filters into filter pool for randomness/mutation
         num_rnd = int(round(len(filter_pool) * PROP_RND))
@@ -347,30 +351,30 @@ class Population(object):
         new_chains = list()
         for i in range(num_new_chains):
             # Create the list of non overlapping filters
-            filters = list()
+            new_filters = list()
             print("Chain {0}/{1}: Finding combination of filters that is not overlapping...".format(i + 1, num_new_chains))
             # Continue looping until the required number of filters for the new chain is reached.
-            while len(filters) < NUM_FILTERS:
+            while len(new_filters) < NUM_FILTERS:
                 crossover_attempt = 1
                 filter_found = False
                 # Try to add a new filter with a maximum number of attempts
-                while crossover_attempt < MAX_CROSSOVER_ATTEMPTS:
+                while crossover_attempt <= MAX_CROSSOVER_ATTEMPTS:
                     filter_candidate = random.choice(filter_pool)
-                    if is_filter_allowed(filters, filter_candidate):
+                    if is_filter_allowed(new_filters, filter_candidate):
                         filter_found = True
                         break
                     crossover_attempt += 1
                 
                 # Append the filter to list if a non-overlapping one is found
                 if filter_found:
-                    filters.append(filter_candidate)
+                    new_filters.append(filter_candidate)
                 # If a suitable filter was not found within the maximum number of attempts,
                 # wipe the current attempt and try again.
                 else:
                     print("Maximum number of {0} attempts reached, trying again...".format(MAX_CROSSOVER_ATTEMPTS))
-                    filters = list()
+                    new_filters = list()
                 
-            chain = FilterChain(*filters, kind="c")
+            chain = FilterChain(*new_filters, kind="c")
             new_chains.append(chain)
             # print("...done!")
         
@@ -380,42 +384,66 @@ class Population(object):
         # To keep track/print progress
         self.num_fc_mut, self.num_gain_mut, self.num_q_mut = 0, 0, 0
         num_filters_mut = 0
+        failed_mutations = 0
         self.mutation_table = list()
         
-        for chain in new_chains:
+        for i, chain in enumerate(new_chains):
             new_filters = list()
-            new_filters_mutated = list()
-            new_filters_mutated_originals = list()
-            chain_kind = "c"
-
+            print("Chain {0}/{1}: Mutating... ".format(i + 1, num_new_chains))
             # Iterate through all individual filters and mutate
-            for filt in chain.get_filters():
-                # Returns the original and the potentially mutated filter
-                orig_filt, new_filt, new_is_mutated = self.mutate_filter(filt)
+            for j, filt in enumerate(chain.get_filters()):
+                # Returns the original and the mutated filter
+                orig_filt, new_filt = self.mutate_filter(filt)
                 
-                if new_is_mutated:
-                    new_filters_mutated.append(new_filt)
-                    new_filters_mutated_originals.append(orig_filt)
-                    num_filters_mut += 1
-                    chain_kind = "m"
-                else:
+                mutation_attempt = 1
+                mutation_succeeded = False
+                while mutation_attempt <= MAX_MUTATION_ATTEMPTS:
+                    # Try fitting the mutated filter
+                    # Keep mutating the original until obtaining a mutated filter that fits
+                    if is_filter_allowed(new_filters, new_filt):
+                        mutation_succeeded = True
+                        break
+                    else:
+                        _, new_filt = self.mutate_filter(orig_filt)
+                        mutation_attempt += 1
+                
+                if mutation_succeeded:
                     new_filters.append(new_filt)
+                    num_filters_mut += 1
+                    print("- Filter {0}: Succeeded in {1} attempts!".format(j + 1, mutation_attempt))
+                else:
+                    new_filters.append(orig_filt)
+                    failed_mutations += 1
+                    print("FAILED after max {0} attempts, using original filter!".format(mutation_attempt))
             
-            # Try fitting the mutated filters
-            for i in range(len(new_filters_mutated)):
-                new_filt = new_filters_mutated[i]
-                orig_filt = new_filters_mutated_originals[i]
-                # Keep mutating the original until obtaining a mutated filter that fits
-                while not is_filter_allowed(new_filters, new_filt):
-                    _, new_filt, _ = self.mutate_filter(orig_filt)
-                new_filters.append(new_filt)
-            
+            # Apply the new set of mutated filters
             assert len(chain.filters) == len(new_filters)
             chain.filters = tuple(new_filters)
-            chain.kind = chain_kind
+
+            # # Iterate through all individual filters and mutate
+            # for filt in chain.get_filters():
+            #     # Returns the original and the mutated filter
+            #     orig_filt, new_filt = self.mutate_filter(filt)
+            #
+            #     new_filters_mutated.append(new_filt)
+            #     new_filters_mutated_originals.append(orig_filt)
+            #     num_filters_mut += 1
+            #
+            # # Try fitting the mutated filters
+            # for i in range(len(new_filters_mutated)):
+            #     new_filt = new_filters_mutated[i]
+            #     orig_filt = new_filters_mutated_originals[i]
+            #     # Keep mutating the original until obtaining a mutated filter that fits
+            #     while not is_filter_allowed(new_filters, new_filt):
+            #         _, new_filt = self.mutate_filter(orig_filt)
+            #     new_filters.append(new_filt)
+            #
+            # assert len(chain.filters) == len(new_filters)
+            # chain.filters = tuple(new_filters)
+            # chain.kind = chain_kind
             
-        print("Mutation results: num_filters_mut = {0}, num_fc = {1}, num_gain = {2}, num_q = {3}"
-              .format(num_filters_mut, self.num_fc_mut, self.num_gain_mut, self.num_q_mut))
+        print("Mutation results: failed_mutations = {0}, num_filters_mut = {1}, num_fc = {2}, num_gain = {3}, num_q = {4}"
+              .format(failed_mutations, num_filters_mut, self.num_fc_mut, self.num_gain_mut, self.num_q_mut))
         
         print("New population calculated!")
         
@@ -426,9 +454,6 @@ class Population(object):
             print("%-8s%-12f%-12f" % (param, old, new))
             
         # Save the new population!
-        # Do a random shuffle to remove bias of promoted and new_chains being
-        # applied in different parts of the song. Shouldn't matter but just in case.
-        # Lastly, reset the self.population list. We will create the new one.
         self.population = promoted + new_chains
         
         # print("\nKINDS NEXT ITER:")
@@ -437,34 +462,26 @@ class Population(object):
     
     def mutate_filter(self, filt):
         """
-        Mutates a filter parameter with probability PROM_MUT.
-        This style of loop is required to mutate the chain.filters list.
+        Mutates all filter parameters.
         """
         fc, gain, q = filt.fc, filt.gain, filt.q
-        is_mutated = False
-        # Mutate fc
-        if np.random.random() < PROB_MUT:
-            fc = self.mutate_fc(filt.fc)
-            self.num_fc_mut += 1
-            self.mutation_table.append(("fc", filt.fc, fc))
-            is_mutated = True
-        # Mutate gain
-        if np.random.random() < PROB_MUT:
-            gain = self.mutate_gain(filt.gain)
-            self.num_gain_mut += 1
-            self.mutation_table.append(("gain", filt.gain, gain))
-            is_mutated = True
-        # Mutate Q
-        if np.random.random() < PROB_MUT:
-            q = self.mutate_q(filt.q)
-            self.num_q_mut += 1
-            self.mutation_table.append(("Q", filt.q, q))
-            is_mutated = True
         
-        if is_mutated:
-            return filt, PeakFilter(fc, gain, q), is_mutated
-        else:
-            return filt, filt, is_mutated
+        # Mutate fc
+        fc = self.mutate_fc(filt.fc)
+        self.num_fc_mut += 1
+        self.mutation_table.append(("fc", filt.fc, fc))
+
+        # Mutate gain
+        gain = self.mutate_gain(filt.gain)
+        self.num_gain_mut += 1
+        self.mutation_table.append(("gain", filt.gain, gain))
+
+        # Mutate Q
+        q = self.mutate_q(filt.q)
+        self.num_q_mut += 1
+        self.mutation_table.append(("Q", filt.q, q))
+        
+        return filt, PeakFilter(fc, gain, q)
         
     def mutate_fc(self, fc_old):
         """
@@ -935,7 +952,7 @@ class Algorithm(QtCore.QThread):
                 self.update_filter_ax_signal.emit()  # Trigger updating the filter chain plot
                 
                 # TODO
-                time.sleep(0.5)  # Delay to prevent VHOOFH from affecting recordings
+                time.sleep(1)  # Delay to prevent VHOOFH from affecting recordings
                 # Measure STF and fitness, and save as instance attribute of the chain
                 print("Measuring STF, recording {0}s...".format(round(SNIPPET_LENGTH / RATE, 2)))
                 stf, fitness = self.measure_stf_fitness(verbose=False)
@@ -943,20 +960,27 @@ class Algorithm(QtCore.QThread):
                 chain.set_stf_fitness(stf, fitness)
         
             best_chain = sorted(self.population.get_population(), key=lambda x: x.fitness)[0]
-            print("\nIteration's best fitness: {0} (id={1})".format(best_chain.fitness, best_chain.id))
+            print("\nIteration's best fitness: {0} (id={1}, kind={2})"
+                  .format(best_chain.fitness, best_chain.id, best_chain.kind))
             self.population.save_best_fitness()
             
             # Send back stuff
+            # deepcopy is needed because the filter chains are mutable and change between iterations
             self.sendback_queue.put(initial_stf)
             self.sendback_queue.put(initial_fitness)
-            self.sendback_queue.put(best_chain.stf)
+            self.sendback_queue.put(deepcopy(best_chain.stf))
             self.sendback_queue.put(best_chain.fitness)
             self.sendback_queue.put(self.population.best_fitness_list)
-            self.sendback_queue.put(self.population.get_population())
+            self.sendback_queue.put(deepcopy(self.population.get_population()))
             
             self.collect_algorithm_queue_data_signal.emit()  # Trigger collection of algorithm data from sendback_queue
             self.update_fitness_iter_ax_signal.emit()  # Trigger updating the algorithm progression plot
             self.update_stf_ax_signal.emit()  # Trigger updating the STF plot
+            
+            # To ensure the program thread has time to collect the population before the new one is calculated.
+            # This potentially fixes the issue of wrong kind-labels showing up on the graph.
+            # Needed because the filter chains are mutable and change between iterations
+            time.sleep(0.2)
             
             self.population.calculate_new_population()
             iteration += 1

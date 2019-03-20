@@ -7,6 +7,8 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 from copy import deepcopy
 
+# np.random.seed(1)
+
 # TODO is meas_out_buffer really needed?
 
 
@@ -119,10 +121,12 @@ class Program(QWidget):
         self.setLayout(main_layout)
 
     def init_plots(self):
+        self.plot_xlimits = F_LIMITS[:]
+        
         # Background Measurement
-        self.bg_model_ax.set_title("Background Measurement", fontsize=FONTSIZE_TITLES)
-        self.bg_model_ax.set_ylabel("Magnitude [dBFS]", fontsize=FONTSIZE_LABELS)
-        self.bg_model_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
+        self.bg_model_ax.set_title("Background measurement", fontsize=FONTSIZE_TITLES)
+        self.bg_model_ax.set_ylabel("Magnitude (dBFS)", fontsize=FONTSIZE_LABELS)
+        self.bg_model_ax.set_xlabel("Frequency (Hz)", fontsize=FONTSIZE_LABELS)
         self.bg_model_ax.minorticks_on()
         self.bg_model_ax.tick_params(labelsize=FONTSIZE_TICKS)
         self.bg_model_ax.grid(which="major", linestyle="-", alpha=0.4)
@@ -130,18 +134,18 @@ class Program(QWidget):
         self.bg_model_ax.set_xscale("log")
 
         # Algorithm Progression
-        self.fitness_iter_ax.set_title("Algorithm Progression", fontsize=FONTSIZE_TITLES)
-        self.fitness_iter_ax.set_ylabel("Fitness", fontsize=FONTSIZE_LABELS)
-        self.fitness_iter_ax.set_xlabel("Iteration", fontsize=FONTSIZE_LABELS)
+        self.fitness_iter_ax.set_title("Algorithm progression", fontsize=FONTSIZE_TITLES)
+        self.fitness_iter_ax.set_ylabel(r"Objective, $\phi$", fontsize=FONTSIZE_LABELS)
+        self.fitness_iter_ax.set_xlabel("Generation", fontsize=FONTSIZE_LABELS)
         self.fitness_iter_ax.minorticks_on()
         self.fitness_iter_ax.tick_params(labelsize=FONTSIZE_TICKS)
         self.fitness_iter_ax.grid(which="major", linestyle="-", alpha=0.4)
         self.fitness_iter_ax.grid(which="minor", linestyle="--", alpha=0.2)
         
         # Current Filter Chain
-        self.filter_ax.set_title("Current Filter Chain", fontsize=FONTSIZE_TITLES)
-        self.filter_ax.set_ylabel("Transfer Function " + r"$H(z)$" + " [dB]", fontsize=FONTSIZE_LABELS)
-        self.filter_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
+        self.filter_ax.set_title("Current filter chain", fontsize=FONTSIZE_TITLES)
+        self.filter_ax.set_ylabel("Transfer function " + r"$H^{db}_{C}(f)$" + " (dB)", fontsize=FONTSIZE_LABELS)
+        self.filter_ax.set_xlabel("Frequency (Hz)", fontsize=FONTSIZE_LABELS)
         self.filter_ax.minorticks_on()
         self.filter_ax.tick_params(labelsize=FONTSIZE_TICKS)
         self.filter_ax.grid(which="major", linestyle="-", alpha=0.4)
@@ -152,8 +156,8 @@ class Program(QWidget):
 
         # Current STF
         self.stf_ax.set_title("Current STF", fontsize=FONTSIZE_TITLES)
-        self.stf_ax.set_ylabel("Magnitude [dB]", fontsize=FONTSIZE_LABELS)
-        self.stf_ax.set_xlabel("Frequency [Hz]", fontsize=FONTSIZE_LABELS)
+        self.stf_ax.set_ylabel("Magnitude (dB)", fontsize=FONTSIZE_LABELS)
+        self.stf_ax.set_xlabel("Frequency (Hz)", fontsize=FONTSIZE_LABELS)
         self.stf_ax.minorticks_on()
         self.stf_ax.tick_params(labelsize=FONTSIZE_TICKS)
         self.stf_ax.grid(which="major", linestyle="-", alpha=0.4)
@@ -193,15 +197,15 @@ class Program(QWidget):
         # Plot snippets
         for x, y in self.bg_snippets:
             self.bg_model_ax.semilogx(x, y, color="gray", zorder=-1, linewidth=1)
-        self.bg_model_ax.legend(["Log Binned Model", "N={0} Snippets".format(len(self.bg_snippets))],
+        self.bg_model_ax.legend(["Averaged background model", "{0} audio clips".format(len(self.bg_snippets))],
                                 fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
     
     def update_fitness_iter_ax(self):
         # Remove all existing lines
         self.fitness_iter_ax.lines = list()
-        fitness_r, fitness_p, fitness_cm = list(), list(), list()
-        iter_r, iter_p, iter_cm = list(), list(), list()
+        fitness_r, fitness_p, fitness_c = list(), list(), list()
+        iter_r, iter_p, iter_c = list(), list(), list()
         # Plot all fitness as scatter, colour coded
         for i, population in enumerate(self.population_history):
             for chain in population:
@@ -212,18 +216,15 @@ class Program(QWidget):
                     fitness_p.append(chain.fitness)
                     iter_p.append(i + 1)
                 elif chain.kind == "c":
-                    fitness_cm.append(chain.fitness)
-                    iter_cm.append(i + 1)
-                elif chain.kind == "m":
-                    fitness_cm.append(chain.fitness)
-                    iter_cm.append(i + 1)
+                    fitness_c.append(chain.fitness)
+                    iter_c.append(i + 1)
 
         self.fitness_iter_ax.plot(iter_r, fitness_r, linestyle="", marker="o", color="C0", label="Random")
         self.fitness_iter_ax.plot(iter_p, fitness_p, linestyle="", marker="o", color="C1", label="Promoted")
-        self.fitness_iter_ax.plot(iter_cm, fitness_cm, linestyle="", marker="o", color="C2", label="Crossover/Mutated")
+        self.fitness_iter_ax.plot(iter_c, fitness_c, linestyle="", marker="o", color="C2", label="Crossover and mutated")
         
         # Plot best fitness
-        self.fitness_iter_ax.plot(self.best_fitness_list, color="black", label="Best fitness")
+        self.fitness_iter_ax.plot(self.best_fitness_list, color="black", label=r"Best $\phi$")
         self.fitness_iter_ax.legend(fontsize=FONTSIZE_LEGENDS)
 
         # Dynamically set axes limits
@@ -238,7 +239,8 @@ class Program(QWidget):
         self.filter_ax.lines = list()
         # Plot live_chain
         f, H = self.live_chain.get_chain_tf()
-        self.filter_ax.semilogx(f, convert_to_dbfs(H), label="Chain (id={0})".format(self.live_chain.id), linewidth=2, color="C0")
+        self.filter_ax.semilogx(f, convert_to_dbfs(H), label="Chain (id={0})".format(self.live_chain.id), linewidth=2,
+                                color="C0")
         # Plot individual filters
         for d in self.live_chain.get_all_filters_settings_tf():
             f, h = d["tf"]
@@ -250,18 +252,20 @@ class Program(QWidget):
         self.filter_ax.relim()
         self.filter_ax.autoscale_view()
         self.filter_ax.set_autoscale_on(True)
+        self.filter_ax.set_xlim(self.plot_xlimits)
 
         self.canvas.draw()
 
     def update_stf_ax(self):
         self.stf_ax.lines = list()
-        self.stf_ax.plot(*self.best_stf, color="black", label="Current best STF (fitness={0})"
+        self.stf_ax.plot(*self.best_stf, color="black", label=r"Current best STF ($\phi$={0})"
                          .format(round(self.best_fitness, 2)), linestyle="-", linewidth=2, zorder=-1)
-        self.stf_ax.plot(*self.initial_stf, color="gray", label="Initial STF (fitness={0})"
+        self.stf_ax.plot(*self.initial_stf, color="gray", label=r"RTF ($\phi$={0})"
                          .format(round(self.initial_fitness, 2)), linestyle="-", linewidth=2)
 
         self.stf_ax.legend(fontsize=FONTSIZE_LEGENDS)
         self.canvas.draw()
+        self.plot_xlimits = self.stf_ax.get_xlim()
 
     def collect_algorithm_queue_data(self):
         """
@@ -275,7 +279,9 @@ class Program(QWidget):
         self.best_fitness_list = self.alg_queue.get()
         curr_population = self.alg_queue.get()
         # deepcopy is needed because the filter chains are mutable and change between iterations
-        self.population_history.append(deepcopy(curr_population))
+        # TODO no longer needed because doing a deepcopy in backend?
+        # self.population_history.append(deepcopy(curr_population))
+        self.population_history.append(curr_population)
     
     def start_bg_model_measurement(self):
         # Deactivate buttons
@@ -310,8 +316,8 @@ class Program(QWidget):
     def start_algorithm(self):
         # self.wait_for_bg = threading.Event()
         # self.wait_for_bg.clear()
-        print("\nYou get 20 seconds to GTFO...")
-        time.sleep(20)
+        print("\nYou get 10 seconds to GTFO...")
+        time.sleep(10)
         # if self.bg_model is None:
         #     self.start_bg_model_measurement()
         # self.wait_for_bg.wait()
@@ -380,19 +386,18 @@ class Program(QWidget):
                           
                           "PROP_PROMOTED = {14}\n\n"
                           
-                          "PROB_MUT = {15}\n"
-                          "STDEV_FC = {16}\n"
-                          "STDEV_GAIN = {17}\n"
-                          "STDEV_Q = {18}\n\n"
+                          "STDEV_FC = {15}\n"
+                          "STDEV_GAIN = {16}\n"
+                          "STDEV_Q = {17}\n\n"
             
-                          "PROP_RND = {19}\n\n\n"
+                          "PROP_RND = {18}\n\n\n"
             
                           .format(RATE, BUFFER, SNIPPET_LENGTH, BACKGROUND_LENGTH, MEAS_REF_LATENCY,
                                   LATENCY_MEASUREMENT_LENGTH,
                                   EXPORT_WAV, F_LIMITS, OCT_FRAC, MAX_CROSSOVER_ATTEMPTS,
                                   POP_SIZE, NUM_FILTERS, GAIN_LIMITS, Q_LIMITS,
                                   PROP_PROMOTED,
-                                  PROB_MUT, STDEV_FC, STDEV_GAIN, STDEV_Q,
+                                  STDEV_FC, STDEV_GAIN, STDEV_Q,
                                   PROP_RND)
                           )
         
@@ -419,7 +424,7 @@ class Program(QWidget):
             w = "/// ALGORITHM ///\n\n"
             for i, population in enumerate(self.population_history):
                 best_chain = sorted(population, key=lambda x: x.fitness)[0]
-                w += "/// iteration: {0}, best.fitness: {1}, best.id: {2}, best.kind = {3}\n"\
+                w += "/// iteration: {0}, best.fitness: {1}, best.id: {2}, best.kind: {3}\n"\
                      .format(i + 1, best_chain.fitness, best_chain.id, best_chain.kind)
                 for chain in population:
                     w += "chain_id_{0}:\nstf = {1}\nfitness = {2}\nkind = {3}\n"\

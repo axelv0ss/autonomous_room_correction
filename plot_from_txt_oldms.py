@@ -161,15 +161,22 @@ def plot_efp(file_path):
             if "best.ms" in line:
                 best_ms.append(float(line.split("best.ms: ")[1].split(",")[0]))
     
-    f, ax = plt.subplots()
+    f, ax = plt.subplots(figsize=(4, 2))
+
+    import matplotlib.font_manager as fm
+    font = fm.FontProperties(family='Gill Sans',
+                             fname='/Library/Fonts/GillSans.ttc',
+                             size=FONTSIZE_LABELS * 2)
     
-    ax.plot(range(len(best_ms)), best_ms, linewidth=3)
+    ax.plot(range(len(best_ms)), best_ms, linewidth=3, color="#3ebae5")
     
     # plt.title("Sound Improvement", fontsize=FONTSIZE_TITLES)
-    plt.ylabel("Room Colouration", fontsize=FONTSIZE_LABELS * 2)
-    plt.xlabel("Time", fontsize=FONTSIZE_LABELS * 2)
+    plt.ylabel("Sound Error", fontsize=FONTSIZE_LABELS * 2, fontproperties=font, color="#e4e4e4")
+    plt.xlabel("Time", fontsize=FONTSIZE_LABELS * 2, fontproperties=font, color="#e4e4e4")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_color("#e4e4e4")
+    ax.spines["left"].set_color("#e4e4e4")
     
     # plt.minorticks_on()
     # plt.tick_params(labelsize=FONTSIZE_TICKS)
@@ -177,6 +184,12 @@ def plot_efp(file_path):
     plt.yticks([])
     # plt.grid(which="major", linestyle="-", alpha=0.4)
     # plt.grid(which="minor", linestyle="--", alpha=0.2)
+
+    plt.tight_layout()
+    f.patch.set_alpha(0)
+    # ax.patch.set_alpha(0)
+
+    f.savefig("efp.png", transparent=True, dpi=800)
     
     plt.show()
 
@@ -234,12 +247,12 @@ def plot_poster(file_path):
 
     plt.tight_layout()
     fig.patch.set_alpha(0)
-    # fig.savefig("algo_progression.png", transparent=False, dpi=800)
+    # fig.savefig("plot_poster.png", transparent=False, dpi=800)
     
     plt.show()
 
 
-plot_poster(path)
+# plot_poster(path)
 # plot_background(path)
 # plot_efp(path)
 
