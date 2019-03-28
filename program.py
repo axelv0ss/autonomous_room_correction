@@ -143,8 +143,8 @@ class Program(QWidget):
         self.fitness_iter_ax.grid(which="minor", linestyle="--", alpha=0.2)
         
         # Current Filter Chain
-        self.filter_ax.set_title("Current filter chain", fontsize=FONTSIZE_TITLES)
-        self.filter_ax.set_ylabel("Transfer function " + r"$H^{db}_{C}(f)$" + " (dB)", fontsize=FONTSIZE_LABELS)
+        self.filter_ax.set_title("Current CTF", fontsize=FONTSIZE_TITLES)
+        self.filter_ax.set_ylabel("Magnitude (dB)", fontsize=FONTSIZE_LABELS)
         self.filter_ax.set_xlabel("Frequency (Hz)", fontsize=FONTSIZE_LABELS)
         self.filter_ax.minorticks_on()
         self.filter_ax.tick_params(labelsize=FONTSIZE_TICKS)
@@ -155,7 +155,7 @@ class Program(QWidget):
         self.update_filter_ax()
 
         # Current STF
-        self.stf_ax.set_title("Current STF", fontsize=FONTSIZE_TITLES)
+        self.stf_ax.set_title("Measured STF", fontsize=FONTSIZE_TITLES)
         self.stf_ax.set_ylabel("Magnitude (dB)", fontsize=FONTSIZE_LABELS)
         self.stf_ax.set_xlabel("Frequency (Hz)", fontsize=FONTSIZE_LABELS)
         self.stf_ax.minorticks_on()
@@ -220,8 +220,8 @@ class Program(QWidget):
                     iter_c.append(i + 1)
 
         self.fitness_iter_ax.plot(iter_r, fitness_r, linestyle="", marker="o", color="C0", label="Random")
-        self.fitness_iter_ax.plot(iter_p, fitness_p, linestyle="", marker="o", color="C1", label="Promoted")
-        self.fitness_iter_ax.plot(iter_c, fitness_c, linestyle="", marker="o", color="C2", label="Crossover and mutated")
+        self.fitness_iter_ax.plot(iter_p, fitness_p, linestyle="", marker="o", color="C1", label="Selected")
+        self.fitness_iter_ax.plot(iter_c, fitness_c, linestyle="", marker="o", color="C2", label="Crossover")
         
         # Plot best fitness
         self.fitness_iter_ax.plot(self.best_fitness_list, color="black", label=r"Best $\phi$")
@@ -260,7 +260,7 @@ class Program(QWidget):
         self.stf_ax.lines = list()
         self.stf_ax.plot(*self.best_stf, color="black", label=r"Current best STF ($\phi$={0})"
                          .format(round(self.best_fitness, 2)), linestyle="-", linewidth=2, zorder=-1)
-        self.stf_ax.plot(*self.initial_stf, color="gray", label=r"RTF ($\phi$={0})"
+        self.stf_ax.plot(*self.initial_stf, color="gray", label=r"Initial RTF ($\phi$={0})"
                          .format(round(self.initial_fitness, 2)), linestyle="-", linewidth=2)
 
         self.stf_ax.legend(fontsize=FONTSIZE_LEGENDS)

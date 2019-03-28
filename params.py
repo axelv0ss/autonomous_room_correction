@@ -21,7 +21,8 @@ BACKGROUND_LENGTH = SNIPPET_LENGTH * 10
 
 # How much time (in seconds) that the meas_in stream is ahead of ref_in stream.
 # Can be calibrated by enabling wav export and see how much lag there is
-MEAS_REF_LATENCY = 0.569
+# MEAS_REF_LATENCY = 0.569  # Macbook
+MEAS_REF_LATENCY = 0.585  # Mac Pro
 LATENCY_MEASUREMENT_LENGTH = 212992
 
 # Program parameters
@@ -33,7 +34,9 @@ OCT_FRAC = 1 / 6
 # After this number of attempts of creating a chain with non-overlapping filters from the
 # filter pool is reached, wipe the current attempt and start again.
 MAX_CROSSOVER_ATTEMPTS = 100
-MAX_MUTATION_ATTEMPTS = 500
+# After this number of attempts of mutating the filter such that it doesn't overlap with any existing
+# filters, just use the original parameters (non-mutated). In this case it is called a "failed mutation".
+MAX_MUTATION_ATTEMPTS = 1000
 
 # For evolutionary algorithm
 POP_SIZE = 100
@@ -41,11 +44,11 @@ NUM_FILTERS = 5
 GAIN_LIMITS = [-10, 10]
 Q_LIMITS = [1, 6]
 
-PROP_PROMOTED = 0.33  # Proportion of chains promoted in each iteration
+PROP_PROMOTED = 0.3  # Proportion of chains promoted in each iteration
 
-STDEV_FC = 0.5 * 2  # Standard deviation (proportion) with which to mutate fc
-STDEV_GAIN = 2 * 2  # Standard deviation (linear) with which to mutate gain
-STDEV_Q = 0.5 * 2  # Standard deviation (proportion) with which to mutate Q
+STDEV_FC = 0.5 * 1  # Standard deviation (proportion) with which to mutate fc
+STDEV_GAIN = 2 * 1  # Standard deviation (linear) with which to mutate gain
+STDEV_Q = 0.5 * 1  # Standard deviation (proportion) with which to mutate Q
 
 PROP_RND = 0  # Proportion of random filters added in filter pool
 
@@ -59,13 +62,15 @@ FONTSIZE_LEGENDS = 9
 FONTSIZE_TICKS = 9
 
 # Routing, audio device indices
-REF_IN_INDEX = 3  # Soundflower (2ch)
-MEAS_OUT_INDEX = 2  # soundcard
-MEAS_IN_INDEX = 2  # soundcard
+# REF_IN_INDEX = 3  # Soundflower (2ch)
+# MEAS_OUT_INDEX = 2  # soundcard
+# MEAS_IN_INDEX = 2  # soundcard
 
-# REF_IN_INDEX = 2  # Soundflower (2ch)
-# MEAS_OUT_INDEX = 1  # Built-in Output
-# MEAS_IN_INDEX = 0  # Built-in Microphone
+# Mac Pro
+REF_IN_INDEX = 3  # Soundflower (2ch)
+# MEAS_OUT_INDEX = 2  # M-Track Hub
+MEAS_OUT_INDEX = 1  # UMC404HD 192k
+MEAS_IN_INDEX = 1  # UMC404HD 192k
 
 assert SNIPPET_LENGTH % BUFFER == 0, "SNIPPET_LENGTH must be an integer multiple of BUFFER"
 assert BACKGROUND_LENGTH % BUFFER == 0, "BACKGROUND_LENGTH must be an integer multiple of BUFFER"
