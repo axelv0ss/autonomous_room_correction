@@ -488,17 +488,14 @@ class Population(object):
         Takes an old fc value and mutates it using a Guassian with standard deviation STDEV_FC.
         Respects F_LIMITS. If the mutated value is outside of limits, return the limit.
         """
-        factor_fc = np.random.normal(loc=0, scale=STDEV_FC)
+        x_oct = np.random.normal(loc=0, scale=STDEV_FC)
         
-        if factor_fc >= 0:
-            fc_new = fc_old * (factor_fc + 1)
-            if fc_new > F_LIMITS[1]:
-                fc_new = F_LIMITS[1]
+        fc_new = fc_old * 2 ** x_oct
         
-        else:
-            fc_new = fc_old / (abs(factor_fc) + 1)
-            if fc_new < F_LIMITS[0]:
-                fc_new = F_LIMITS[0]
+        if fc_new > F_LIMITS[1]:
+            fc_new = F_LIMITS[1]
+        elif fc_new < F_LIMITS[0]:
+            fc_new = F_LIMITS[0]
         
         return fc_new
     
@@ -522,17 +519,14 @@ class Population(object):
         Takes an old q value and mutates it using a Guassian with standard deviation STDEV_Q.
         Respects Q_LIMITS. If the mutated value is outside of limits, return the limit.
         """
-        factor_q = np.random.normal(loc=0, scale=STDEV_Q)
-    
-        if factor_q >= 0:
-            q_new = q_old * (factor_q + 1)
-            if q_new > Q_LIMITS[1]:
-                q_new = Q_LIMITS[1]
-    
-        else:
-            q_new = q_old / (abs(factor_q) + 1)
-            if q_new < Q_LIMITS[0]:
-                q_new = Q_LIMITS[0]
+        x_oct = np.random.normal(loc=0, scale=STDEV_Q)
+
+        q_new = q_old * 2 ** x_oct
+        
+        if q_new > Q_LIMITS[1]:
+            q_new = Q_LIMITS[1]
+        elif q_new < Q_LIMITS[0]:
+            q_new = Q_LIMITS[0]
     
         return q_new
     

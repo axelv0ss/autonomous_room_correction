@@ -41,8 +41,8 @@ MAX_MUTATION_ATTEMPTS = 1000
 # For evolutionary algorithm
 POP_SIZE = 100
 NUM_FILTERS = 5
-GAIN_LIMITS = [-10, 10]
-Q_LIMITS = [1, 6]
+GAIN_LIMITS = [-15, 15]
+Q_LIMITS = [1, 9]
 
 PROP_PROMOTED = 0.3  # Proportion of chains promoted in each iteration
 
