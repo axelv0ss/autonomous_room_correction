@@ -40,15 +40,15 @@ MAX_MUTATION_ATTEMPTS = 1000
 
 # For evolutionary algorithm
 POP_SIZE = 100
-NUM_FILTERS = 5
+NUM_FILTERS = 10
 GAIN_LIMITS = [-15, 15]
 Q_LIMITS = [1, 9]
 
 PROP_PROMOTED = 0.3  # Proportion of chains promoted in each iteration
 
-STDEV_FC = 0.5 * 1  # Standard deviation (proportion) with which to mutate fc
-STDEV_GAIN = 2 * 1  # Standard deviation (linear) with which to mutate gain
-STDEV_Q = 0.5 * 1  # Standard deviation (proportion) with which to mutate Q
+STDEV_FC = 0.5 * 0.5  # Standard deviation (proportion) with which to mutate fc
+STDEV_GAIN = 2 * 0.5  # Standard deviation (linear) with which to mutate gain
+STDEV_Q = 0.5 * 0.5   # Standard deviation (proportion) with which to mutate Q
 
 PROP_RND = 0  # Proportion of random filters added in filter pool
 

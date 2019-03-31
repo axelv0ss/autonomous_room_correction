@@ -28,7 +28,7 @@ import numpy as np
 #
 # plt.show()
 
-x = np.random.normal(0, 1, 1000000)
+x = np.random.normal(0, 0, 1000000)
 
 
 def f_new(x, f_old=1):
@@ -38,7 +38,7 @@ def f_new(x, f_old=1):
         return f_old / (1 - x)
 
 
-plt.hist([f_new(x) for x in x], bins=np.logspace(np.log10(0.1), np.log10(10.0), 100))
-# plt.hist(2 ** x, bins=np.logspace(np.log10(0.1), np.log10(10.0), 100))
+# plt.hist([f_new(x) for x in x], bins=np.logspace(np.log10(0.1), np.log10(10.0), 100))
+plt.hist(2 ** x, bins=np.logspace(np.log10(0.1), np.log10(10.0), 100))
 plt.gca().set_xscale("log")
 plt.show()
